@@ -13,6 +13,11 @@ Varje agent i `.claude/agents/` läser den här filen först. Reglerna gäller i
 - Använd fasta datum (`asOf`) så att resultaten inte beror på dagens datum.
 - All påhittad data är testdata. Använd fiktiva namn för onoterade fonder och motparter.
 
+## Testning
+- Kända och nya fel dokumenteras som **testscenarier** i `tests/scenarios/` (format i `tests/scenarios/README.md`), med handräknade förväntade värden och märkningen `kantFel` tills felet är rättat.
+- Ta aldrig bort en kontroll och ändra aldrig ett förväntat värde för att få testerna gröna. Om scenariot visar sig vara fel ska det motiveras med en uträkning.
+- `npm test` körs automatiskt på GitHub vid varje push och pull request (`.github/workflows/test.yml`).
+
 ## Människan bestämmer
 - Ett steg som kräver mänskligt godkännande markeras i flödet med **Människa**. Agenter får aldrig fylla i ett godkännande själva, gissa ett godkännande eller tolka tystnad som ja.
 - Beslutsavsnitt har alltid formen:

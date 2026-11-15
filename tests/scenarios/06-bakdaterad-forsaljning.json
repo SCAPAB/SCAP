@@ -1,0 +1,15 @@
+{
+  "namn": "Bakdaterad försäljning får inte skapa ett omöjligt innehav",
+  "beskrivning": "Köp 1 000 à 100 (2026-01-10), sälj 1 000 à 120 (2026-03-10) → realiserat 20 000 och innehav 0. En bakdaterad försäljning av 500 (2026-02-10) skulle göra innehavet negativt i mars och ska därför stoppas.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "EQUITY", "name": "Testbolaget C", "currency": "SEK", "country": "SE" }, "spara": "aktie" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2026-01-10", "quantity": 1000, "price": 100, "amount": 100000, "fee": 0 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "SELL", "trade_date": "2026-03-10", "quantity": 1000, "price": 120, "amount": 120000, "fee": 0 } },
+    { "beskrivning": "Bakdaterad försäljning stoppas", "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "SELL", "trade_date": "2026-02-10", "quantity": 500, "price": 110, "amount": 55000, "fee": 0 }, "forvantadStatus": 400, "felInnehaller": "överstiger", "kantFel": "Granskning fynd 3: innehavet kontrolleras bara per affärsdagen" }
+  ],
+  "kontroller": [
+    { "namn": "Innehavet är noll", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.quantity", "forvantat": 0 },
+    { "namn": "Realiserat resultat 20 000", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.realizedBase", "forvantat": 20000, "kantFel": "Granskning fynd 3: realiserat blir 125 000" }
+  ]
+}

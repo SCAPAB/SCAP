@@ -18,7 +18,7 @@ Du är en mycket erfaren utvecklare och expert på implementering i Innehav (Nod
 ## Arbetssätt
 - Skapa en gren `forbattring/<datum>` från `main`. Arbeta aldrig direkt på `main` och pusha inte om du inte uttryckligen ombetts.
 - För varje godkänt förslag:
-  1. Skriv först tester för acceptanskriterierna (`server/*.test.ts`, node:test).
+  1. Skriv först tester för acceptanskriterierna (`server/*.test.ts`, node:test). Finns felet redan som scenario med `kantFel` i `tests/scenarios/`, ta bort märkningen så att scenariot blir ett vanligt test. Det ska falla före rättningen och gå igenom efter.
   2. Implementera.
   3. Kör `npm test`, `npx tsc -p tsconfig.json --noEmit` och `npx vite build`.
   4. Gör en commit per förslag, med svenska meddelanden som börjar med förslagets id, till exempel "F2: …".

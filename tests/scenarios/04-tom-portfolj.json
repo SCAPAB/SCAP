@@ -1,0 +1,12 @@
+{
+  "namn": "Tom portfölj – programmet direkt efter installation",
+  "beskrivning": "Utan innehav ska marknadsvärdet vara 0 och avkastning ska inte visas som 0 % (det finns ingen avkastning att visa).",
+  "datum": "2026-06-30",
+  "steg": [],
+  "kontroller": [
+    { "namn": "Marknadsvärde 0", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.marketValue", "forvantat": 0 },
+    { "namn": "Inga innehav", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.holdingsCount", "forvantat": 0 },
+    { "namn": "Avkastning sedan start saknas (inte 0 %)", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "returns[key=ALL].value", "forvantat": null, "kantFel": "Granskning fynd 8: tom portfölj visar 'Sedan start 0,0 %'" },
+    { "namn": "Utan policyportfölj visas ingen policystatus", "hamta": "GET /api/portfolio/allocation?asOf={{datum}}", "falt": "rows[key=PUBLIC_EQUITY].status", "forvantat": "none" }
+  ]
+}

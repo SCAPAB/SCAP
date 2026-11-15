@@ -1,0 +1,22 @@
+{
+  "namn": "Aktie i SEK – två köp, delförsäljning och för stor försäljning",
+  "beskrivning": "Köp 100 st à 100 och 100 st à 120 (GAV 110). Sälj 50 st à 140 → realiserat 50 × (140 − 110) = 1 500. Kurs 150 per 2026-06-30 → marknadsvärde 150 × 150 = 22 500, anskaffningsvärde 150 × 110 = 16 500, orealiserat 6 000. En försäljning av 200 st (fler än innehavet) ska stoppas.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "EQUITY", "name": "Testbolaget B", "currency": "SEK", "country": "SE" }, "spara": "aktie" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2026-01-10", "quantity": 100, "price": 100, "amount": 10000, "fee": 0 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2026-02-10", "quantity": 100, "price": 120, "amount": 12000, "fee": 0 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "SELL", "trade_date": "2026-03-10", "quantity": 50, "price": 140, "amount": 7000, "fee": 0 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-06-30", "price": 150 } },
+    { "beskrivning": "Försäljning av fler än innehavet stoppas", "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "SELL", "trade_date": "2026-04-01", "quantity": 200, "price": 150, "amount": 30000, "fee": 0 }, "forvantadStatus": 400, "felInnehaller": "överstiger" }
+  ],
+  "kontroller": [
+    { "namn": "Antal efter köp och försäljning", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.quantity", "forvantat": 150 },
+    { "namn": "GAV enligt genomsnittsmetoden", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.avgCostLocal", "forvantat": 110 },
+    { "namn": "Anskaffningsvärde", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.costBase", "forvantat": 16500 },
+    { "namn": "Realiserat resultat", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.realizedBase", "forvantat": 1500 },
+    { "namn": "Marknadsvärde", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.mvBase", "forvantat": 22500 },
+    { "namn": "Orealiserat resultat", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.unrealizedBase", "forvantat": 6000 },
+    { "namn": "Tillgångsslaget Noterade aktier summerar rätt", "hamta": "GET /api/portfolio/holdings?assetClass=PUBLIC_EQUITY&asOf={{datum}}", "falt": "total.value", "forvantat": 22500 }
+  ]
+}

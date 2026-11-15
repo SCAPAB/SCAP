@@ -1,0 +1,15 @@
+{
+  "namn": "Inkorgen – ett kapitalanrop med negativt belopp får inte kunna godkännas",
+  "beskrivning": "Ett underlag laddas upp (utan AI-tolkning) och en manuell post för kapitalanrop registreras med beloppet −500 000. Posten ska blockeras.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Growth I", "currency": "SEK", "strategy": "Growth", "vintage": 2025, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-01-01", "amount": 1000000 } },
+    { "anrop": "POST /api/documents", "data": { "filename": "kapitalanrop.pdf", "mime": "application/pdf", "data": "JVBERi0xLjQKJXRlc3RkYXRhIGZvciBzY2VuYXJpbyAwNwo=" }, "spara": "dok" },
+    { "anrop": "POST /api/documents/{{dok}}/proposals", "data": { "kind": "CALL" }, "spara": "post" },
+    { "anrop": "PUT /api/proposals/{{post}}", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "fields": { "date": "2026-03-01", "amount": -500000, "currency": "SEK" } } }
+  ],
+  "kontroller": [
+    { "namn": "Posten kan inte godkännas", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].canApprove", "forvantat": false, "kantFel": "Granskning fynd 4: negativa belopp blockeras inte" }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "namn": "Saknad valutakurs – en USD-aktie utan registrerade valutakurser",
+  "beskrivning": "En SEK-aktie (100 st à 50 → 5 000) och en USD-aktie köpt med manuell valutakurs 10 men utan valutakurser i registret. Portföljvärdet får inte bli ogiltigt, och saknad valutakurs ska flaggas.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "EQUITY", "name": "Testbolag SEK", "currency": "SEK", "country": "SE" }, "spara": "sek" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{sek}}", "type": "BUY", "trade_date": "2026-01-10", "quantity": 100, "price": 50, "amount": 5000, "fee": 0 } },
+    { "anrop": "POST /api/instruments", "data": { "type": "EQUITY", "name": "Test Inc", "currency": "USD", "country": "US" }, "spara": "usd" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{usd}}", "type": "BUY", "trade_date": "2026-01-10", "quantity": 10, "price": 100, "amount": 1000, "fee": 0, "fx_rate": 10 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{usd}}", "date": "2026-06-30", "price": 110 } }
+  ],
+  "kontroller": [
+    { "namn": "SEK-innehavet värderas korrekt", "hamta": "GET /api/instruments/{{sek}}?asOf={{datum}}", "falt": "total.mvBase", "forvantat": 5000 },
+    { "namn": "Portföljens marknadsvärde är ett giltigt tal", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.marketValue", "arTal": true, "kantFel": "Granskning fynd 1: saknad valutakurs ger ogiltigt portföljvärde" },
+    { "namn": "Saknad valutakurs flaggas", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "staleData", "innehaller": "USD", "kantFel": "Granskning fynd 1: varningen nämner inte saknad valutakurs" }
+  ]
+}

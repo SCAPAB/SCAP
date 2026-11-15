@@ -1,0 +1,24 @@
+{
+  "namn": "PE-fond – åtagande, kapitalanrop, NAV-rapport och utdelning",
+  "beskrivning": "Åtagande 1 000 000. Anrop 2025-03-01: investering 280 000 + avgift 20 000. NAV-rapport 2025-12-31: 320 000. Efter rapporten: utdelning 50 000 (2026-02-01) och anrop 100 000 (2026-03-01). Per 2026-06-30: inbetalt 400 000, outnyttjat 600 000, utdelat 50 000, NAV 320 000 + 100 000 − 50 000 = 370 000, DPI 0,125, TVPI (50 000 + 370 000) / 400 000 = 1,05.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Buyout I", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-01-01", "amount": 1000000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2025-03-01", "amount": 280000, "fee": 20000 } },
+    { "anrop": "POST /api/valuations", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "date": "2025-12-31", "nav": 320000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "DISTRIBUTION", "trade_date": "2026-02-01", "amount": 50000, "fee": 0 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-03-01", "amount": 100000, "fee": 0 } }
+  ],
+  "kontroller": [
+    { "namn": "Åtagande", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.commitment", "forvantat": 1000000 },
+    { "namn": "Inbetalt inklusive avgifter", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.paidIn", "forvantat": 400000 },
+    { "namn": "Outnyttjat åtagande", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.uncalled", "forvantat": 600000 },
+    { "namn": "Utdelat", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.distributed", "forvantat": 50000 },
+    { "namn": "NAV framrullat från senaste rapport", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.nav", "forvantat": 370000 },
+    { "namn": "NAV markeras som framräknat", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.navEstimated", "forvantat": true },
+    { "namn": "DPI", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.dpi", "forvantat": 0.125, "tolerans": 0.0001 },
+    { "namn": "TVPI", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.tvpi", "forvantat": 1.05, "tolerans": 0.0001 },
+    { "namn": "Outnyttjat syns under Likviditet och åtaganden", "hamta": "GET /api/portfolio/liquidity?asOf={{datum}}", "falt": "uncalled", "forvantat": 600000 }
+  ]
+}

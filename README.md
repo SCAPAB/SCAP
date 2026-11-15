@@ -94,6 +94,18 @@ Utvecklingen av systemet drivs av **agentflöden**, alltså kedjor av agenter me
 
 Agenterna finns i `.claude/agents/`, arbetar alltid mot en tillfällig databas och rör inte er riktiga data.
 
+## Testning
+
+```bash
+npm test
+```
+
+Kommandot kör två sorters tester:
+- **Enhetstester** (`server/*.test.ts`) av beräkningar, inkorg och Morningstar-kopplingen.
+- **Scenarier** (`tests/scenarios/*.json`) är affärshändelser från början till slut, till exempel köp, försäljning, kapitalanrop, NAV-rapport och valutaeffekt. De har handräknade förväntade värden och körs mot en egen tom instans av programmet. Formatet beskrivs i [`tests/scenarios/README.md`](tests/scenarios/README.md).
+
+Kända fel som ännu inte är rättade ligger kvar som scenarier märkta `kantFel`. De redovisas som *todo* i testresultatet utan att stoppa körningen. Testerna körs automatiskt på GitHub vid varje ändring (fliken *Actions*).
+
 ## Beräkningsprinciper
 
 - **Rapportvaluta** är SEK. Valutakurs anges som SEK per enhet.

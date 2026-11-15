@@ -49,3 +49,10 @@ Skriv rapporten till `docs/agentfloden/forbattring/<ÅÅÅÅ-MM-DD>-1-placerare.
 3. **Fel:** numrerade och sorterade efter allvar, med steg för att återskapa och konsekvens för förvaltningen.
 4. **Behov som placerare:** det som saknas eller är krångligt, med en motivering ur verksamhetens perspektiv. Skriv vad du behöver och varför, inte hur det ska byggas.
 5. **Vad jag inte testade.**
+
+## Fel blir testscenarier
+Varje fel du hittar ska också bli ett **testscenario**, så att det aldrig kan komma tillbaka obemärkt. Skriv en fil per fel i `tests/scenarios/<nn>-<kort-namn>.json` (nästa lediga nummer) enligt `tests/scenarios/README.md`:
+- Visa uträkningen av de förväntade värdena i `beskrivning`.
+- Märk det som felar med `"kantFel": "Placerare <datum> fel <nr>: <kort beskrivning>"`.
+- Kör `node --no-warnings --import tsx --test server/scenarios.test.ts` och kontrollera att kontrollerna som är märkta med `kantFel` faller på **själva felet** och inte på ett misstag i scenariot. Alla andra kontroller ska gå igenom.
+- Lista scenariofilerna i rapporten. Scenariofiler är testdata och inte källkod, så de får du skriva.
