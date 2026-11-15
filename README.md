@@ -87,15 +87,14 @@ Krav på servern: Python 3.9 eller senare och `pip install morningstar-data`. Co
 
 ## Agenter (Claude Code)
 
-I `.claude/agents/` finns tre agenter som Claude Code läser in automatiskt:
+Förbättringsarbetet sker i ett agentflöde med ett mänskligt godkännande i mitten (se `docs/agentflode/`):
 
-| Agent | Roll |
-|---|---|
-| `systemtestare` | Lägger in data i en isolerad testinstans, räknar ut förväntat resultat för hand och kontrollerar att programmet visar rätt. Ändrar ingen kod. |
-| `granskare` | Granskar helheten (logik, beräkningar, flöden, begriplighet, säkerhet) och lämnar en prioriterad fyndlista. Ändrar ingen kod. |
-| `utvecklare` | Åtgärdar fynd med tester först, på en egen gren och i små commits. |
+1. **`placerare`** arbetar i systemet som en institutionell placerare: bygger upp en portfölj från noll, kontrollerar siffrorna mot egna uträkningar och beskriver vad som saknas för skarp drift.
+2. **`senior-utvecklare`** verifierar fynden i koden och skriver ett prioriterat förslag med teknisk lösning och acceptanskriterier.
+3. **En människa** godkänner förslagen, helt eller delvis, i förslagsfilen.
+4. **`implementerare`** bygger enbart det godkända, med tester, på en egen gren.
 
-Starta en agent genom att be Claude om det, till exempel *"Låt systemtestaren testa en PE-fond med kapitalanrop, NAV-rapport och utdelning"*, eller skriv `@systemtestare` i Claude Code. Agenterna arbetar alltid mot en tillfällig databas och rör inte er riktiga data.
+Kör hela flödet med `/agentflode` i Claude Code (till exempel `/agentflode private equity och kapitalanrop`). Agenten `granskare` kan dessutom användas fristående för en oberoende helhetsgranskning. Agenterna arbetar alltid mot en tillfällig databas och rör inte er riktiga data.
 
 ## Beräkningsprinciper
 
