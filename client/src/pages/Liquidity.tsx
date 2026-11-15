@@ -43,7 +43,7 @@ export default function Liquidity() {
           <div className="legend" style={{ marginBottom: 6 }}>
             <span><i style={{ background: 'var(--series-1)' }} />Kapitalanrop</span>
             <span><i style={{ background: 'var(--series-3)' }} />Utdelningar</span>
-            <span><i style={{ background: 'var(--series-2)', height: 2 }} />Nettoflöde</span>
+            <span><i style={{ background: 'var(--ink)' }} />Nettoflöde</span>
           </div>
           <div style={{ height: 280 }}>
             <ResponsiveContainer>
@@ -58,9 +58,9 @@ export default function Liquidity() {
                     <div>Utdelningar: <strong>{fmt.msek(Number(payload[0].payload.distributions))}</strong></div>
                     <div>Netto: <strong>{fmt.msek(Number(payload[0].payload.net))}</strong></div>
                   </div>) : null} />
-                <Bar dataKey="calls" stackId="a" fill="var(--series-1)" radius={[0, 0, 4, 4]} maxBarSize={40} isAnimationActive={false} />
-                <Bar dataKey="distributions" stackId="a" fill="var(--series-3)" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
-                <Line dataKey="net" stroke="var(--series-2)" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+                <Bar dataKey="calls" stackId="a" fill="var(--series-1)" radius={0} maxBarSize={40} isAnimationActive={false} />
+                <Bar dataKey="distributions" stackId="a" fill="var(--series-3)" radius={0} maxBarSize={40} isAnimationActive={false} />
+                <Line dataKey="net" stroke="var(--ink)" strokeWidth={1.5} dot={{ r: 2.5, fill: "var(--ink)" }} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>

@@ -61,7 +61,7 @@ export default function Overview() {
             {mode === 'value' && (
               <div className="legend" style={{ marginBottom: 6 }}>
                 <span><i style={{ background: 'var(--series-1)' }} />Marknadsvärde</span>
-                <span><i style={{ background: 'var(--series-2)', height: 2 }} />Nettoinvesterat kapital</span>
+                <span><i style={{ background: 'var(--ink-2)' }} />Nettoinvesterat kapital (streckad)</span>
               </div>
             )}
             <ValueChart series={data.series} mode={mode} />
@@ -119,7 +119,7 @@ function PolicyCard() {
               <td><Link to={`/tillgangsslag/${r.path}`}>{r.label}</Link></td>
               <td className="num">{fmt.msek(r.value)}</td>
               <td className={'num ' + (r.status === 'ok' ? '' : 'neg')} title={r.status === 'ok' ? 'Inom intervall' : 'Utanför tillåtet intervall'}>
-                {fmt.pct(r.share)}{r.status !== 'ok' && r.status !== 'none' && ' !'}
+                {fmt.pct(r.share)}{r.status !== 'ok' && r.status !== 'none' && <span className="flag" aria-label="Utanför intervall" />}
               </td>
               <td className="num muted">{r.target == null ? '–' : fmt.pct(r.target, 0)}</td>
             </tr>

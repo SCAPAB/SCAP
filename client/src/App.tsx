@@ -63,7 +63,7 @@ function Login({ onLogin }: { onLogin: (m: Me) => void }) {
   return (
     <div className="login">
       <div className="card">
-        <div className="brand" style={{ padding: '0 0 18px' }}><Logo /> Innehav</div>
+        <Brand />
         <form onSubmit={submit}>
           <label className="field">E-postadress<input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus /></label>
           <label className="field">Lösenord<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
@@ -75,11 +75,12 @@ function Login({ onLogin }: { onLogin: (m: Me) => void }) {
   );
 }
 
-function Logo() {
+function Brand() {
   return (
-    <span className="brand-mark" aria-hidden>
-      <svg width="18" height="18" viewBox="0 0 24 24"><path d="M3 17l6-7 4 4 8-10" stroke="white" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
-    </span>
+    <div className="brand">
+      <span className="wordmark">Innehav</span>
+      <span className="tagline">Portföljsystem · SCAP</span>
+    </div>
   );
 }
 
@@ -113,7 +114,7 @@ function Shell() {
   return (
     <div className="app">
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
-        <div className="brand"><Logo /> Innehav</div>
+        <Brand />
         <nav className="nav">
           {NAV.filter((n) => !n.admin || isAdmin).map((n) => (
             <div key={n.to}>

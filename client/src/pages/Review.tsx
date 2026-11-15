@@ -176,7 +176,7 @@ export default function Review() {
           {doc.status === 'manual' && <div className="alert">{doc.error ?? 'Registrera posterna manuellt.'} Lägg till de poster dokumentet innehåller nedan.</div>}
           {doc.summary && (
             <div className="card doc-summary">
-              <div className="row"><span className="ai-tag">AI</span><span>{doc.summary}</span></div>
+              <div className="row" style={{ alignItems: 'baseline' }}><span className="ai-tag">AI-sammanfattning</span><span>{doc.summary}</span></div>
               {doc.investor_label && <div className="small muted" style={{ marginTop: 6 }}>Investerare enligt dokumentet: <strong>{doc.investor_label}</strong></div>}
               {doc.warnings.length > 0 && (
                 <ul className="ai-warnings">{doc.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
@@ -350,7 +350,7 @@ function ProposalEditor({ p, issuer, instruments, entities, onChange, onHighligh
           {(Object.keys(KIND_LABELS) as Kind[]).map((k) => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
         </select>
         <span className="spacer" />
-        {p.origin === 'ai' ? <span className="ai-tag" title="Förslaget kommer från AI-tolkningen">AI-förslag</span> : <span className="badge">Manuell</span>}
+        {p.origin === 'ai' ? <span className="ai-tag" title="Förslaget kommer från AI-tolkningen">Förslag från AI</span> : <span className="badge">Manuell</span>}
       </div>
 
       <div className="form-grid">

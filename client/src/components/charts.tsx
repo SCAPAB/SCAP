@@ -24,18 +24,12 @@ export function ValueChart({ series, mode }: { series: SeriesPoint[]; mode: Mode
       <ResponsiveContainer>
         {mode === 'value' ? (
           <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="vfill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--series-1)" stopOpacity={0.22} />
-                <stop offset="100%" stopColor="var(--series-1)" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
             <CartesianGrid vertical={false} />
             <XAxis dataKey="date" tickFormatter={monthTick} minTickGap={40} tickLine={false} axisLine={{ stroke: 'var(--line-strong)' }} />
             <YAxis tickFormatter={axisNum} width={56} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
             <Tooltip content={<Tip rows={[{ k: 'value', l: 'Marknadsvärde', f: fmt.msek }, { k: 'netInvested', l: 'Nettoinvesterat', f: fmt.msek }]} />} />
-            <Area type="monotone" dataKey="value" stroke="var(--series-1)" strokeWidth={2} fill="url(#vfill)" dot={false} isAnimationActive={false} />
-            <Line type="stepAfter" dataKey="netInvested" stroke="var(--series-2)" strokeWidth={2} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+            <Area type="linear" dataKey="value" stroke="var(--series-1)" strokeWidth={1.75} fill="var(--series-1)" fillOpacity={0.06} dot={false} isAnimationActive={false} />
+            <Line type="stepAfter" dataKey="netInvested" stroke="var(--ink-2)" strokeWidth={1.25} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
           </AreaChart>
         ) : (
           <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -44,7 +38,7 @@ export function ValueChart({ series, mode }: { series: SeriesPoint[]; mode: Mode
             <YAxis tickFormatter={(v) => fmt.pct(v, 1)} width={56} tickLine={false} axisLine={false} />
             <ReferenceLine y={0} stroke="var(--line-strong)" />
             <Tooltip content={<Tip rows={[{ k: 'ret', l: 'Avkastning (TWR)', f: (v) => fmt.signedPct(v) }]} />} />
-            <Line type="monotone" dataKey="ret" stroke="var(--series-1)" strokeWidth={2} dot={false} isAnimationActive={false} />
+            <Line type="linear" dataKey="ret" stroke="var(--series-1)" strokeWidth={1.75} dot={false} isAnimationActive={false} />
           </LineChart>
         )}
       </ResponsiveContainer>
@@ -62,7 +56,7 @@ export function PriceChart({ data, currency }: { data: { date: string; price: nu
           <XAxis dataKey="date" tickFormatter={monthTick} minTickGap={40} tickLine={false} axisLine={{ stroke: 'var(--line-strong)' }} />
           <YAxis tickFormatter={axisNum} width={56} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
           <Tooltip content={<Tip rows={[{ k: 'price', l: `Kurs (${currency})`, f: fmt.price }]} />} />
-          <Line type="monotone" dataKey="price" stroke="var(--series-1)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line type="linear" dataKey="price" stroke="var(--series-1)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -77,7 +71,7 @@ export function CashflowChart({ data }: { data: { year: string; calls: number; d
       <div className="legend" style={{ marginBottom: 6 }}>
         <span><i style={{ background: 'var(--series-1)' }} />Kapitalanrop</span>
         <span><i style={{ background: 'var(--series-3)' }} />Utdelningar</span>
-        <span><i style={{ background: 'var(--series-2)', height: 2 }} />Ackumulerat netto</span>
+        <span><i style={{ background: 'var(--ink)' }} />Ackumulerat netto</span>
       </div>
       <div className="chart" style={{ height: 260 }}>
         <ResponsiveContainer>
@@ -87,9 +81,9 @@ export function CashflowChart({ data }: { data: { year: string; calls: number; d
             <YAxis tickFormatter={axisNum} width={56} tickLine={false} axisLine={false} />
             <ReferenceLine y={0} stroke="var(--line-strong)" />
             <Tooltip content={<Tip label="year" rows={[{ k: 'calls', l: 'Kapitalanrop', f: fmt.msek }, { k: 'distributions', l: 'Utdelningar', f: fmt.msek }, { k: 'cumulative', l: 'Ackumulerat netto', f: fmt.msek }]} />} />
-            <Bar dataKey="calls" stackId="a" fill="var(--series-1)" radius={[0, 0, 4, 4]} isAnimationActive={false} maxBarSize={36} />
-            <Bar dataKey="distributions" stackId="a" fill="var(--series-3)" radius={[4, 4, 0, 0]} isAnimationActive={false} maxBarSize={36} />
-            <Line type="monotone" dataKey="cumulative" stroke="var(--series-2)" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+            <Bar dataKey="calls" stackId="a" fill="var(--series-1)" radius={0} isAnimationActive={false} maxBarSize={36} />
+            <Bar dataKey="distributions" stackId="a" fill="var(--series-3)" radius={0} isAnimationActive={false} maxBarSize={36} />
+            <Line type="linear" dataKey="cumulative" stroke="var(--ink)" strokeWidth={1.5} dot={{ r: 2.5, fill: "var(--ink)" }} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

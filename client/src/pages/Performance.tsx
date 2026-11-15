@@ -10,7 +10,7 @@ interface Resp { asOf: string; total: Row; rows: Row[] }
 
 // Fast färg per tillgångsslag (följer entiteten, inte rangordningen)
 const COLORS: Record<string, string> = {
-  TOTAL: 'var(--ink)', PUBLIC_EQUITY: '#2a78d6', FIXED_INCOME: '#eb6834', PRIVATE_EQUITY: '#1baf7a', REAL_ASSETS: '#6250d6', ABSOLUTE_RETURN: '#e87ba4',
+  TOTAL: 'var(--ink)', PUBLIC_EQUITY: 'var(--series-1)', FIXED_INCOME: 'var(--series-2)', PRIVATE_EQUITY: 'var(--series-3)', REAL_ASSETS: 'var(--series-4)', ABSOLUTE_RETURN: 'var(--series-5)',
 };
 
 export default function Performance() {
@@ -70,7 +70,7 @@ export default function Performance() {
       <div className="card">
         <div className="card-head"><h2>Ackumulerad avkastning</h2></div>
         <div className="legend" style={{ marginBottom: 6 }}>
-          {all.map((r) => <span key={r.key}><i style={{ background: COLORS[r.key], height: 3 }} />{r.label}</span>)}
+          {all.map((r) => <span key={r.key}><i style={{ background: COLORS[r.key] }} />{r.label}</span>)}
         </div>
         <div style={{ height: 320 }}>
           <ResponsiveContainer>
@@ -87,7 +87,7 @@ export default function Performance() {
                   </div>
                 ) : null}
               />
-              {all.map((r) => <Line key={r.key} dataKey={r.key} stroke={COLORS[r.key]} strokeWidth={r.key === 'TOTAL' ? 2.5 : 2} dot={false} isAnimationActive={false} connectNulls />)}
+              {all.map((r) => <Line key={r.key} dataKey={r.key} stroke={COLORS[r.key]} strokeWidth={r.key === 'TOTAL' ? 2.25 : 1.5} dot={false} isAnimationActive={false} connectNulls />)}
             </LineChart>
           </ResponsiveContainer>
         </div>
