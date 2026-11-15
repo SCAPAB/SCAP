@@ -12,11 +12,11 @@ export const IMPORT_KINDS = {
   transactions: {
     label: 'Transaktioner',
     columns: ['datum', 'enhet', 'instrument', 'typ', 'antal', 'kurs', 'belopp', 'avgift', 'valutakurs', 'likviddag', 'notering'],
-    example: 'datum;enhet;instrument;typ;antal;kurs;belopp;avgift;valutakurs;notering\n2026-01-15;Demo Holding AB;SE0000115446;Köp;1000;245,50;245500;98;;Köp via mäklare',
+    example: 'datum;enhet;instrument;typ;antal;kurs;belopp;avgift;valutakurs;notering\n2026-01-15;;SE0000115446;Köp;1000;245,50;245500;98;;Köp via mäklare',
   },
   prices: { label: 'Kurser', columns: ['instrument', 'datum', 'kurs'], example: 'instrument;datum;kurs\nSE0000115446;2026-01-15;246,10' },
   fx: { label: 'Valutakurser', columns: ['valuta', 'datum', 'kurs'], example: 'valuta;datum;kurs\nEUR;2026-01-15;11,02' },
-  valuations: { label: 'NAV PE-fonder', columns: ['enhet', 'instrument', 'datum', 'nav'], example: 'enhet;instrument;datum;nav\nDemo Holding AB;Nordic Buyout Partners IV;2025-12-31;14250000' },
+  valuations: { label: 'NAV PE-fonder', columns: ['enhet', 'instrument', 'datum', 'nav'], example: 'instrument;datum;nav\nExempel Buyout Fund IV;2025-12-31;14250000' },
   instruments: {
     label: 'Instrument',
     columns: ['typ', 'namn', 'isin', 'ticker', 'valuta', 'land', 'region', 'bransch', 'kategori', 'förvaltare', 'strategi', 'vintage'],

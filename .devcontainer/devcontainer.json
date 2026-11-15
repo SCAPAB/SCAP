@@ -1,8 +1,8 @@
 {
   "name": "Innehav",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
-  "postCreateCommand": "npm install && python3 -m venv .venv && .venv/bin/pip install -q morningstar-data && npm run demo",
-  "postAttachCommand": "npm run dev:demo",
+  "postCreateCommand": "npm install && python3 -m venv .venv && .venv/bin/pip install -q morningstar-data && npm run setup",
+  "postAttachCommand": "npm run dev",
   "forwardPorts": [
     5173
   ],

@@ -163,7 +163,7 @@ export function matchEntity(label: string | null, issuer: string | null, instrum
     const digits = label.replace(/\D/g, '');
     const byOrg = entities.find((e) => e.org_nr && digits.includes(e.org_nr.replace(/\D/g, '')));
     if (byOrg) return { ...base, id: byOrg.id, method: 'org_nr', score: 1, confirmed: true };
-    // Investeraretiketter innehåller ofta kontonummer o.d.: "Demo Stiftelse (Investor ID 30042)"
+    // Investeraretiketter innehåller ofta kontonummer o.d.: "Stiftelsen X (Investor ID 30042)"
     const nl = ` ${normalize(label)} `;
     const contained = entities.filter((e) => nl.includes(` ${normalize(e.name)} `)).sort((a, b) => b.name.length - a.name.length);
     if (contained.length) return { ...base, id: contained[0].id, method: 'exact', score: 1, confirmed: contained.length === 1 || contained[0].name.length > contained[1].name.length };

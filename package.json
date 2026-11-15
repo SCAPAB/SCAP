@@ -10,12 +10,10 @@
     "dev:web": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "start": "NODE_ENV=production node --no-warnings --import tsx server/index.ts",
-    "seed": "node --no-warnings --import tsx server/seed.ts",
     "test": "node --no-warnings --import tsx --test server/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "demo:docs": "node --no-warnings --import tsx scripts/demo-docs.ts",
-    "demo": "npm run seed && npm run demo:docs",
-    "dev:demo": "INNEHAV_AI_MOCK=data/demo-dokument/ai npm run dev"
+    "setup": "node --no-warnings --import tsx server/setup.ts",
+    "reset": "node --no-warnings --import tsx server/reset.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
@@ -43,7 +41,6 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "concurrently": "^10.0.7",
-    "pdf-lib": "^1.17.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
   }

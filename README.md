@@ -4,7 +4,7 @@ Portföljsystem för institutionella investerare. Det samlar direktägda aktier,
 
 ## Kör i GitHub Codespaces (ingen installation)
 
-I repot på GitHub: **Code → Codespaces → Create codespace on main**. Codespacet installerar allt, skapar demodata och startar programmet. En webbläsarflik öppnas med inloggningssidan (port 5173). Logga in med `admin@innehav.local` / `innehav`.
+I repot på GitHub: **Code → Codespaces → Create codespace on main**. Codespacet installerar allt och startar programmet (tomt, utan demodata). En webbläsarflik öppnas med inloggningssidan (port 5173). Logga in med `admin@innehav.local` / `innehav`.
 
 Dela en länk med en kollega: gå till fliken **Ports** i Codespaces, högerklicka på port 5173 och välj **Port Visibility → Private to Organization**.
 
@@ -12,16 +12,14 @@ Dela en länk med en kollega: gå till fliken **Ports** i Codespaces, högerklic
 
 ```bash
 npm install
-npm run seed        # skapar databasen data/innehav.db med DEMODATA (raderar befintligt innehåll)
 npm run dev         # API på :3001 och webb på http://localhost:5173
 ```
 
-Produktionsläge: `npm run build && npm start`. Då serverar API:et den byggda klienten på http://localhost:3001.
+Programmet startar **tomt**. Vid första start skapas en administratör och den juridiska enheten (inga instrument, kurser eller transaktioner). Produktionsläge: `npm run build && npm start`.
 
-Demoinloggning: `admin@innehav.local` (administratör), `granskare@innehav.local` (redigerare, för att prova fyra ögon-principen) och `lasare@innehav.local` (läsare). Lösenordet är `innehav` för alla tre.
-Byt lösenorden innan systemet används på riktigt (Administration → Användare). Du kan också köra seed med `ADMIN_PASSWORD=...`.
+Första inloggning: `admin@innehav.local` / `innehav`. Byt lösenordet direkt under Administration → Användare, eller sätt `ADMIN_EMAIL` och `ADMIN_PASSWORD` före första start. Enhetens namn kan sättas med `ORG_NAME` och `ORG_NR`, eller under Administration → Organisation.
 
-> Demodata är syntetiskt. Kurser, valutakurser, NAV och kassaflöden är framslumpade och motsvarar inte verkliga marknadsdata.
+Rensa all data (oåterkalleligt): `npm run reset -- --ja`.
 
 ## Struktur i menyn
 
@@ -75,15 +73,6 @@ export INNEHAV_AI_MODEL=claude-opus-5-5   # valfritt, detta är standard
 ```
 
 Dokumenten skickas då till Anthropics API för tolkning. Kontrollera att det är förenligt med era riktlinjer för informationshantering. Utan nyckel fungerar Inkorgen ändå: posterna registreras manuellt med samma kontroller och samma godkännande.
-
-### Demo utan API-nyckel
-
-```bash
-npm run demo        # demodata + fyra demodokument i data/demo-dokument/
-npm run dev:demo    # startar med förinspelade AI-svar för demodokumenten
-```
-
-Ladda sedan upp PDF:erna från `data/demo-dokument/` i Inkorgen. Demodokumenten innehåller två avsiktliga avvikelser: ett saknat kapitalanrop för Demo Stiftelse och 1 500 för många aktier i innehavsbeskedet.
 
 ## Morningstar (Analytics Lab)
 

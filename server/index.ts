@@ -5,6 +5,9 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { api } from './api.ts';
 import { HttpError } from './auth.ts';
+import { ensureSetup } from './setup.ts';
+
+ensureSetup();
 
 const app = express();
 app.disable('x-powered-by');

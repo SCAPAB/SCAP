@@ -26,7 +26,7 @@ export default function Inbox() {
   const [filter, setFilter] = useState<'todo' | 'all' | 'done'>('todo');
   const [tick, setTick] = useState(0);
   const { data, error } = useFetch<DocListRow[]>('/documents', [tick]);
-  const { data: ai } = useFetch<{ enabled: boolean; model: string; mock: boolean }>('/ai/status');
+  const { data: ai } = useFetch<{ enabled: boolean; model: string }>('/ai/status');
   const [uploads, setUploads] = useState<{ name: string; state: 'uploading' | 'ok' | 'dup' | 'error'; msg?: string; id?: number }[]>([]);
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -74,7 +74,6 @@ export default function Inbox() {
       {ai && !ai.enabled && (
         <div className="alert">AI-tolkning är inte aktiverad på servern (ANTHROPIC_API_KEY saknas). Dokument kan ändå laddas upp och poster registreras manuellt med samma kontroller och godkännande.</div>
       )}
-      {ai?.mock && <div className="alert">Demoläge: AI-svaren är förinspelade för demodokumenten och kommer inte från AI-tjänsten.</div>}
       {canEdit && (
         <div
           className={'dropzone' + (drag ? ' drag' : '')}

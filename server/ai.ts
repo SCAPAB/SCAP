@@ -6,13 +6,10 @@
  * Inget sparas utan att en människa har godkänt posten (se proposals.ts).
  *
  * Kräver ANTHROPIC_API_KEY. Utan nyckel hanteras dokument manuellt i samma granskningsflöde.
- * INNEHAV_AI_MOCK=<katalog> används endast för demo/tester: läser förinspelade svar <sha256>.json.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 export const AI_MODEL = process.env.INNEHAV_AI_MODEL ?? 'claude-opus-5-5';
 
@@ -79,7 +76,6 @@ export type ExtractionT = z.infer<typeof Extraction>;
 export type ExtractedItem = z.infer<typeof Item>;
 
 export function aiStatus() {
-  if (process.env.INNEHAV_AI_MOCK) return { enabled: true, model: 'demo (förinspelade svar)', mock: true };
   return { enabled: !!process.env.ANTHROPIC_API_KEY, model: AI_MODEL, mock: false };
 }
 
@@ -118,15 +114,9 @@ Filnamn (endast som ledtråd): ${ctx.filename}`;
 }
 
 export async function extractDocument(
-  file: Buffer, mime: string, sha256: string,
+  file: Buffer, mime: string, _sha256: string,
   ctx: { entities: string[]; instruments: string[]; rules: { issuer: string; instructions: string }[]; hint?: string; filename: string },
 ): Promise<{ extraction: ExtractionT; model: string }> {
-  const mock = process.env.INNEHAV_AI_MOCK;
-  if (mock) {
-    const f = join(mock, `${sha256}.json`);
-    if (!existsSync(f)) throw new Error('Demoläge: inget förinspelat svar för detta dokument');
-    return { extraction: Extraction.parse(JSON.parse(readFileSync(f, 'utf8'))), model: 'demo' };
-  }
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('AI-tolkning är inte aktiverad (ANTHROPIC_API_KEY saknas)');
 
   const client = new Anthropic();

@@ -153,7 +153,7 @@ export default function Review() {
             <span className={'badge ' + STATUS[doc.status].cls}>{STATUS[doc.status].label}</span>
             {doc.doc_type_label && <span className="badge">{doc.doc_type_label}</span>}
             {doc.issuer && <span>{doc.issuer}</span>}
-            <span className="muted small">· uppladdad {doc.uploaded_at.slice(0, 16)} av {doc.uploader ?? '–'}{doc.ai_model ? ` · tolkad av ${doc.ai_model === 'demo' ? 'demoläge' : 'AI'}` : ''}</span>
+            <span className="muted small">· uppladdad {doc.uploaded_at.slice(0, 16)} av {doc.uploader ?? '–'}{doc.ai_model ? ` · tolkad av AI (${doc.ai_model})` : ''}</span>
           </p>
         </div>
         {canEdit && (
