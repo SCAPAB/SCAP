@@ -1,4 +1,7 @@
-# Agentflödet
+# Agentflöde: Förbättring
+
+**Syfte:** hitta fel och brister ur en institutionell placerares perspektiv och bygga det som en människa godkänner.
+**Starta:** `/forbattring [fokus]`
 
 ```mermaid
 flowchart LR
@@ -9,7 +12,7 @@ flowchart LR
     I -->|3-leverans.md + gren| M["Människa<br/>granskar och för in i main"]
 ```
 
-Här sparas varje omgång i agentflödet, så att det i efterhand går att se vem som föreslog, godkände och byggde vad.
+Här sparas varje omgång av flödet, så att det i efterhand går att se vem som föreslog, godkände och byggde vad.
 
 | Fil | Skrivs av | Innehåll |
 |---|---|---|
@@ -20,4 +23,3 @@ Här sparas varje omgång i agentflödet, så att det i efterhand går att se ve
 
 Implementeraren börjar bara om förslagsfilen har `Status: GODKÄND` (eller `DELVIS GODKÄND`) och en ifylld `Godkänd av`.
 
-Starta hela flödet i Claude Code med `/agentflode` (till exempel `/agentflode private equity och kapitalanrop`), eller ett steg i taget genom att be om en viss agent.

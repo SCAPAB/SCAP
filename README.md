@@ -85,16 +85,14 @@ Under **Kurser och valutor → Morningstar** hämtas kurser och grunddata från 
 
 Krav på servern: Python 3.9 eller senare och `pip install morningstar-data`. Codespaces installerar detta automatiskt i `.venv`. Datapunkts-id kan ändras med miljövariablerna `MS_DP_*` i `scripts/morningstar_bridge.py`. Nyckeln från Analytics Lab är kortlivad, så för helt automatisk nattlig hämtning behövs en långlivad API-nyckel från Morningstar.
 
-## Agenter (Claude Code)
+## Agentflöden (Claude Code)
 
-Förbättringsarbetet sker i ett agentflöde med ett mänskligt godkännande i mitten (se `docs/agentflode/`):
+Utvecklingen av systemet drivs av **agentflöden**, alltså kedjor av agenter med mänskliga beslut där det behövs. Översikt, gemensamma regler och mall finns i [`docs/agentfloden/`](docs/agentfloden/README.md).
 
-1. **`placerare`** arbetar i systemet som en institutionell placerare: bygger upp en portfölj från noll, kontrollerar siffrorna mot egna uträkningar och beskriver vad som saknas för skarp drift.
-2. **`senior-utvecklare`** verifierar fynden i koden och skriver ett prioriterat förslag med teknisk lösning och acceptanskriterier.
-3. **En människa** godkänner förslagen, helt eller delvis, i förslagsfilen.
-4. **`implementerare`** bygger enbart det godkända, med tester, på en egen gren.
+- **Förbättring** (`/forbattring [fokus]`): placerare → senior-utvecklare → människa godkänner → implementerare.
+- **Nytt flöde** (`/nytt-agentflode [syfte]`): Claude föreslår steg, agenter och beslutspunkter och skapar filerna när du godkänt upplägget.
 
-Kör hela flödet med `/agentflode` i Claude Code (till exempel `/agentflode private equity och kapitalanrop`). Agenten `granskare` kan dessutom användas fristående för en oberoende helhetsgranskning. Agenterna arbetar alltid mot en tillfällig databas och rör inte er riktiga data.
+Agenterna finns i `.claude/agents/`, arbetar alltid mot en tillfällig databas och rör inte er riktiga data.
 
 ## Beräkningsprinciper
 
