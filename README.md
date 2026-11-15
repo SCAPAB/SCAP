@@ -85,6 +85,18 @@ Under **Kurser och valutor → Morningstar** hämtas kurser och grunddata från 
 
 Krav på servern: Python 3.9 eller senare och `pip install morningstar-data`. Codespaces installerar detta automatiskt i `.venv`. Datapunkts-id kan ändras med miljövariablerna `MS_DP_*` i `scripts/morningstar_bridge.py`. Nyckeln från Analytics Lab är kortlivad, så för helt automatisk nattlig hämtning behövs en långlivad API-nyckel från Morningstar.
 
+## Agenter (Claude Code)
+
+I `.claude/agents/` finns tre agenter som Claude Code läser in automatiskt:
+
+| Agent | Roll |
+|---|---|
+| `systemtestare` | Lägger in data i en isolerad testinstans, räknar ut förväntat resultat för hand och kontrollerar att programmet visar rätt. Ändrar ingen kod. |
+| `granskare` | Granskar helheten (logik, beräkningar, flöden, begriplighet, säkerhet) och lämnar en prioriterad fyndlista. Ändrar ingen kod. |
+| `utvecklare` | Åtgärdar fynd med tester först, på en egen gren och i små commits. |
+
+Starta en agent genom att be Claude om det, till exempel *"Låt systemtestaren testa en PE-fond med kapitalanrop, NAV-rapport och utdelning"*, eller skriv `@systemtestare` i Claude Code. Agenterna arbetar alltid mot en tillfällig databas och rör inte er riktiga data.
+
 ## Beräkningsprinciper
 
 - **Rapportvaluta** är SEK. Valutakurs anges som SEK per enhet.
