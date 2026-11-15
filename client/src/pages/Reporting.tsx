@@ -45,7 +45,6 @@ export default function Reporting() {
           columns={[
             { key: 'f', label: 'Fond', sortValue: (r) => r.fund, render: (r) => <div className="name-cell"><Link to={`/instrument/${r.instrumentId}`}>{r.fund}</Link><span className="sub">{ASSET_CLASS_LABEL[r.assetClass]}</span></div> },
             { key: 'm', label: 'Förvaltare (GP)', sortValue: (r) => r.manager, render: (r) => r.manager ?? '–' },
-            { key: 'e', label: 'Juridisk enhet', sortValue: (r) => r.entity, render: (r) => r.entity },
             { key: 'l', label: 'Senaste NAV', sortValue: (r) => r.latest, render: (r) => r.latest ?? <span className="muted">saknas</span> },
             { key: 'd', label: 'Underlag', render: (r) => (r.documentId ? <Link to={`/inkorg/${r.documentId}`}>Dokument</Link> : <span className="muted small">ej uppladdat</span>) },
             { key: 's', label: 'Status', sortValue: (r) => r.status, render: (r) => <span className={'badge ' + ST[r.status].c}>{ST[r.status].t}{r.status === 'overdue' ? ` (${r.daysLate} d)` : ''}</span> },

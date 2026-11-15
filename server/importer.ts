@@ -63,6 +63,7 @@ export function importCsv(kind: string, csv: string, opts: { dryRun: boolean; us
   const instruments = all<Instrument>('SELECT * FROM instruments');
   const findEntity = (v: string | undefined) => {
     const s = (v ?? '').trim();
+    if (!s && entities.length === 1) return entities[0]; // en juridisk enhet: kolumnen kan utelämnas
     const e = entities.find((e) => String(e.id) === s || e.name.toLowerCase() === s.toLowerCase() || e.org_nr === s);
     if (!e) throw new Error(`Okänd juridisk enhet "${s}"`);
     return e;

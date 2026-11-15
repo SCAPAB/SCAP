@@ -21,7 +21,8 @@ const market = new Market({
   valuations: all('SELECT entity_id, instrument_id, date, nav FROM pe_valuations'),
 });
 const ins = (name: string) => get<Instrument>('SELECT * FROM instruments WHERE name=?', name)!;
-const ent = (name: string) => get<{ id: number; name: string; org_nr: string }>('SELECT * FROM entities WHERE name=?', name)!;
+const ent = () => get<{ id: number; name: string; org_nr: string | null }>('SELECT * FROM entities ORDER BY id LIMIT 1')!;
+const orgSuffix = (e: { org_nr: string | null }) => (e.org_nr ? `, org.nr ${e.org_nr}` : '');
 const txs = (e: number, i: number) => all<Transaction>('SELECT * FROM transactions WHERE entity_id=? AND instrument_id=?', e, i);
 const today = new Date().toISOString().slice(0, 10);
 const weekday = (d: string, dir: -1 | 1) => { let x = d; while ([0, 6].includes(new Date(x + 'T00:00:00Z').getUTCDay())) x = addDays(x, dir); return x; };
@@ -73,7 +74,7 @@ console.log(`Skapar demodokument i ${OUT}`);
 
 // 1. Kapitalanrop – Nordic Buyout Partners IV, Demo Holding AB
 {
-  const fund = ins('Nordic Buyout Partners IV'); const e = ent('Demo Holding AB');
+  const fund = ins('Nordic Buyout Partners IV'); const e = ent();
   const h = peHolding(fund, e.id, txs(e.id, fund.id), market, today);
   const invest = Math.round(Math.min(h.uncalled * 0.55, 650_000) / 100) * 100;
   const mgmt = 37_500; const exp = 4_213.8; const total = r2(invest + mgmt + exp);
@@ -112,33 +113,34 @@ console.log(`Skapar demodokument i ${OUT}`);
   });
 }
 
-// 2. Kapitalkontoutdrag – Scandinavian Growth Fund II, två av våra enheter + en annan investerare
+// 2. Kapitalkontoutdrag – Scandinavian Growth Fund II, tabell med flera investerare där en är vi
 {
   const fund = ins('Scandinavian Growth Fund II');
-  const rows = ['Demo Holding AB', 'Demo Stiftelse'].map((n) => {
-    const e = ent(n);
+  const rows = [ent()].map((e) => {
     const h = peHolding(fund, e.id, txs(e.id, fund.id), market, quarterEnd);
     return { e, h, nav: Math.round(h.nav * 1.027) };
   });
-  // Avsiktlig avvikelse för demo: GP har registrerat ett anrop som saknas i bokföringen för Demo Stiftelse
+  // Avsiktlig avvikelse för demo: GP har registrerat ett anrop som saknas i vår bokföring
   const missing = 2_000_000;
   const d = await Doc.create();
   d.header('Exempel Growth AB', 'Scandinavian Growth Fund II AB  ·  Kapitalkontoutdrag / Capital Account Statement');
   d.line('CAPITAL ACCOUNT STATEMENT', 16, true); d.line(`As of ${longDate(quarterEnd)}  ·  All amounts in SEK`); d.gap(10);
   const xs = [50, 260, 380, 470, 545];
   d.row(['Investor', 'Commitment', 'Paid-in capital', 'Distributions', 'Unfunded'], xs, true); d.rule();
-  const vals = rows.map(({ e, h }, i) => ({ name: e.name, commit: h.commitment, paid: h.paidIn + (i === 1 ? missing : 0), dist: h.distributed, unf: h.uncalled - (i === 1 ? missing : 0) }));
+  const vals = rows.map(({ e, h }, i) => ({ name: e.name, commit: h.commitment, paid: h.paidIn + (i === 0 ? missing : 0), dist: h.distributed, unf: h.uncalled - (i === 0 ? missing : 0) }));
+  d.row(['Stiftelsen Exempelfonden', sv(50_000_000, 0), sv(46_000_000, 0), sv(6_063_228, 0), sv(4_000_000, 0)], xs);
   for (const v of vals) d.row([v.name, sv(v.commit, 0), sv(v.paid, 0), sv(v.dist, 0), sv(v.unf, 0)], xs);
   d.row(['Pensionskassan Exempel', sv(100_000_000, 0), sv(92_000_000, 0), sv(12_126_456, 0), sv(8_000_000, 0)], xs);
   d.gap(16);
   d.row(['Investor', 'NAV before carry', 'Accrued carry', 'NAV after carry', ''], [50, 260, 380, 470, 545], true); d.rule();
+  d.row(['Stiftelsen Exempelfonden', sv(52_563_058, 0), sv(-2_102_522, 0), sv(50_460_536, 0), ''], [50, 260, 380, 470, 545]);
   rows.forEach(({ e, nav }) => d.row([e.name, sv(nav * 1.04, 0), sv(-(nav * 0.04), 0), sv(nav, 0), ''], [50, 260, 380, 470, 545]));
   d.row(['Pensionskassan Exempel', sv(91_200_000, 0), sv(-3_648_000, 0), sv(87_552_000, 0), ''], [50, 260, 380, 470, 545]);
   d.gap(16); d.line('Valuation in accordance with IPEV Valuation Guidelines. Figures are unaudited.', 8);
   d.footer('Demodokument – fiktivt innehåll skapat av Innehav.');
   await d.save('2 Kapitalkontoutdrag Scandinavian Growth Fund II.pdf', {
-    document_type: 'capital_account_statement', summary: `Kapitalkontoutdrag per ${quarterEnd} för tre investerare, varav två är våra enheter.`,
-    issuer: F('Exempel Growth AB', 'Exempel Growth AB'), investor_label: F('Demo Holding AB', 'Demo Holding AB'),
+    document_type: 'capital_account_statement', summary: `Kapitalkontoutdrag per ${quarterEnd} med tre investerare; värdena för ${rows[0].e.name} har hämtats.`,
+    issuer: F('Exempel Growth AB', 'Exempel Growth AB'), investor_label: F(rows[0].e.name, rows[0].e.name),
     items: rows.map(({ e, nav }, i) => item({
       kind: 'NAV', investor_label: F(e.name, e.name), instrument_name: F('Scandinavian Growth Fund II AB', 'Scandinavian Growth Fund II AB'),
       date: F(quarterEnd, `As of ${longDate(quarterEnd)}`), currency: F('SEK', 'All amounts in SEK'),
@@ -147,19 +149,19 @@ console.log(`Skapar demodokument i ${OUT}`);
       distributed_total: F(vals[i].dist, sv(vals[i].dist, 0)), unfunded: F(vals[i].unf, sv(vals[i].unf, 0)),
       note: 'NAV efter upplupen carried interest.',
     })),
-    warnings: ['Dokumentet innehåller även investeraren "Pensionskassan Exempel" som inte är en av era enheter – den har hoppats över.'],
+    warnings: ['Tabellen innehåller även "Stiftelsen Exempelfonden" och "Pensionskassan Exempel" – deras rader har hoppats över.'],
   });
 }
 
 // 3. Avräkningsnota fond – köp av Demo Global Indexfond, Demo Stiftelse
 {
-  const fund = ins('Demo Global Indexfond'); const e = ent('Demo Stiftelse');
+  const fund = ins('Demo Global Indexfond'); const e = ent();
   const td = weekday(addDays(today, -3), -1); const settle = weekday(addDays(td, 2), 1);
   const px = market.price(fund.id, td)!.value; const units = 12_500; const amount = r2(units * px);
   const d = await Doc.create();
   d.header('Demo Fonder AB', 'Box 0000, 100 00 Stockholm  ·  Org.nr 556999-0000');
   d.line('AVRÄKNINGSNOTA – KÖP AV FONDANDELAR', 14, true); d.gap(6);
-  d.line(`Kund: ${e.name}`); d.line(`Org.nr: ${e.org_nr}`); d.line('Kundnummer: 448812'); d.gap(10);
+  d.line(`Kund: ${e.name}${orgSuffix(e)}`); d.line('Kundnummer: 448812'); d.gap(10);
   const xs = [50, 300];
   const r = (a: string, b: string, bold = false) => d.row([a, b], xs, bold, 9);
   r('Fond', fund.name); r('Transaktion', 'Köp'); r('Affärsdag', td); r('Antal andelar', sv(units, 4)); r('NAV-kurs', `${sv(px, 2)} SEK`);
@@ -168,9 +170,9 @@ console.log(`Skapar demodokument i ${OUT}`);
   d.footer('Demodokument – fiktivt innehåll skapat av Innehav.');
   await d.save('3 Avräkningsnota Demo Global Indexfond.pdf', {
     document_type: 'fund_trade_confirmation', summary: `Köp av ${sv(units, 0)} andelar i ${fund.name} för ${e.name}, affärsdag ${td}.`,
-    issuer: F('Demo Fonder AB', 'Demo Fonder AB'), investor_label: F(`${e.name}, org.nr ${e.org_nr}`, `Kund: ${e.name} Org.nr: ${e.org_nr}`),
+    issuer: F('Demo Fonder AB', 'Demo Fonder AB'), investor_label: F(`${e.name}${orgSuffix(e)}`, `Kund: ${e.name}${orgSuffix(e)}`),
     items: [item({
-      kind: 'BUY', investor_label: F(`${e.name}, org.nr ${e.org_nr}`, `Org.nr: ${e.org_nr}`), instrument_name: F(fund.name, `Fond ${fund.name}`),
+      kind: 'BUY', investor_label: F(`${e.name}${orgSuffix(e)}`, `Kund: ${e.name}${orgSuffix(e)}`), instrument_name: F(fund.name, `Fond ${fund.name}`),
       date: F(td, `Affärsdag ${td}`), settle_date: F(settle, 'Likviddag Enligt fondens villkor (T+2)', 'low'), currency: F('SEK', 'SEK'),
       quantity: F(units, `Antal andelar ${sv(units, 4)}`), price: F(px, `NAV-kurs ${sv(px, 2)} SEK`), amount: F(amount, `Belopp ${sv(amount, 2)} SEK`), fee: F(0, 'Avgift 0,00 SEK'),
       note: 'Likviddagen står inte som datum utan som "T+2" – beräknad från affärsdagen.',
@@ -181,24 +183,24 @@ console.log(`Skapar demodokument i ${OUT}`);
 
 // 4. Innehavsbesked från depåbank – Demo Pensionsstiftelse
 {
-  const e = ent('Demo Pensionsstiftelse');
+  const e = ent();
   const listed = all<Instrument>("SELECT * FROM instruments WHERE type != 'PE_FUND' ORDER BY name");
   const held = listed.map((i) => ({ i, h: listedHolding(i, e.id, txs(e.id, i.id), market, monthEnd) })).filter((x) => x.h.quantity > 0).slice(0, 4);
   // Avsiktlig avvikelse för demo: depåbanken visar 1 500 fler aktier i första innehavet
   const lines = held.map((x, k) => ({ ...x, qty: x.h.quantity + (k === 0 ? 1500 : 0), px: market.price(x.i.id, monthEnd)!.value }));
   const d = await Doc.create();
   d.header('Exempelbanken Depåtjänster', 'Innehavsbesked  ·  Depå 9021-445 778');
-  d.line('INNEHAVSBESKED', 16, true); d.line(`Depåägare: ${e.name} (${e.org_nr})`); d.line(`Per datum: ${monthEnd}`); d.gap(10);
+  d.line('INNEHAVSBESKED', 16, true); d.line(`Depåägare: ${e.name}${orgSuffix(e)}`); d.line(`Per datum: ${monthEnd}`); d.gap(10);
   const xs = [50, 190, 330, 430, 545];
   d.row(['Värdepapper', 'ISIN', 'Antal', 'Kurs', 'Marknadsvärde'], xs, true, 2); d.rule();
   for (const l of lines) d.row([l.i.name, l.i.isin ?? '–', sv(l.qty, 0), `${sv(l.px, 2)} ${l.i.currency}`, `${sv(l.qty * l.px, 2)} ${l.i.currency}`], xs, false, 2);
   d.gap(12); d.line('Kurser avser senast betalt eller NAV-kurs per angivet datum.', 8);
   d.footer('Demodokument – fiktivt innehåll skapat av Innehav.');
-  await d.save('4 Innehavsbesked Demo Pensionsstiftelse.pdf', {
+  await d.save('4 Innehavsbesked depå.pdf', {
     document_type: 'holdings_statement', summary: `Innehavsbesked från depåbanken för ${e.name} per ${monthEnd} med ${lines.length} innehav.`,
-    issuer: F('Exempelbanken Depåtjänster', 'Exempelbanken Depåtjänster'), investor_label: F(`${e.name} (${e.org_nr})`, `Depåägare: ${e.name} (${e.org_nr})`),
+    issuer: F('Exempelbanken Depåtjänster', 'Exempelbanken Depåtjänster'), investor_label: F(`${e.name}${orgSuffix(e)}`, `Depåägare: ${e.name}${orgSuffix(e)}`),
     items: lines.map((l, k) => item({
-      kind: 'HOLDING', investor_label: F(`${e.name} (${e.org_nr})`, `Depåägare: ${e.name} (${e.org_nr})`),
+      kind: 'HOLDING', investor_label: F(`${e.name}${orgSuffix(e)}`, `Depåägare: ${e.name}${orgSuffix(e)}`),
       instrument_name: F(l.i.name, l.i.name), isin: F(l.i.isin, l.i.isin), date: F(monthEnd, `Per datum: ${monthEnd}`), currency: F(l.i.currency, l.i.currency),
       quantity: F(l.qty, `${l.i.name} ${sv(l.qty, 0)}`), price: F(l.px, `${sv(l.px, 2)} ${l.i.currency}`, k === 2 ? 'medium' : 'high'),
       amount: F(r2(l.qty * l.px), `${sv(l.qty * l.px, 2)} ${l.i.currency}`),
@@ -208,7 +210,7 @@ console.log(`Skapar demodokument i ${OUT}`);
 }
 // 5. Utdelningsbesked från parallellvehikel med återinkallningsbar del – European Mid-Market Fund VI, Demo Pensionsstiftelse
 {
-  const e = ent('Demo Pensionsstiftelse');
+  const e = ent();
   const pay = weekday(addDays(today, -6), -1);
   const roc = 310_000; const gain = 145_250.4; const income = 18_400; const wht = 0;
   const gross = r2(roc + gain + income);

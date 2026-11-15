@@ -56,14 +56,8 @@ tx(() => {
   ] as const) run('INSERT INTO policy_targets (asset_class, target, min, max) VALUES (?,?,?,?)', k, t, lo, hi);
   run("INSERT INTO settings (key, value) VALUES ('dual_control', 'off')");
 
-  // Juridiska enheter
-  const entities = [
-    ['Demo Holding AB', '556000-0001'],
-    ['Demo Stiftelse', '802000-0002'],
-    ['Demo Pensionsstiftelse', '802000-0003'],
-  ];
-  for (const [n, o] of entities) run('INSERT INTO entities (name, org_nr) VALUES (?,?)', n, o);
-  const E = (n: number) => n; // 1..3
+  // Programmet hanterar EN juridisk enhet (namn och org.nr ändras under Administration → Organisation)
+  run('INSERT INTO entities (id, name, org_nr) VALUES (1, ?, ?)', process.env.SEED_ENTITY ?? 'Lantbrukarnas Ekonomi AB', process.env.SEED_ORGNR ?? null);
 
   // Valutakurser (SEK per enhet)
   const fxDefs: Record<string, [number, number]> = { USD: [10.4, 0.09], EUR: [11.15, 0.06], NOK: [1.06, 0.08], DKK: [1.5, 0.06], CHF: [11.3, 0.07] };
@@ -111,8 +105,7 @@ tx(() => {
     const px = walk(d.px, d.mu, d.vol);
     for (const [date, p] of px) run('INSERT INTO prices (instrument_id,date,price,source) VALUES (?,?,?,?)', id, date, round(p, d.px < 50 ? 4 : 2), 'Demo');
     const pxAt = (date: string) => px.get(nearestTradingDay(date))!;
-    // Varje instrument ägs av 1–3 enheter
-    const owners = [E(1), E(2), E(3)].filter((_, k) => (i + k) % 3 !== 2 || k === 0);
+    const owners = [1];
     const holdings = new Map<number, number>();
     const trade = (ent: number, type: 'BUY' | 'SELL', date: string, budgetSek: number | null, qtyIn?: number) => {
       const td = nearestTradingDay(date);
@@ -125,7 +118,7 @@ tx(() => {
       holdings.set(ent, (holdings.get(ent) ?? 0) + (type === 'BUY' ? qty : -qty));
     };
     for (const ent of owners) {
-      const size = (ent === 3 ? 18e6 : ent === 1 ? 30e6 : 12e6) * (0.6 + rand() * 0.8);
+      const size = 45e6 * (0.6 + rand() * 0.8);
       trade(ent, 'BUY', addDays(START, Math.floor(rand() * 40)), size);
       trade(ent, 'BUY', addDays('2024-03-01', Math.floor(rand() * 120)), size * 0.3);
       if (rand() < 0.6) {
@@ -154,11 +147,11 @@ tx(() => {
 
   // PE-fonder
   const peDefs = [
-    { name: 'Nordic Buyout Partners IV', ccy: 'EUR', country: 'SE', region: 'Norden', strategy: 'Buyout', vintage: 2019, mgr: 'Exempel Partners', commit: [[1, 15e6], [3, 10e6]], moic: 1.9, start: '2019-09-30' },
-    { name: 'Global Infrastructure Fund V', ccy: 'USD', country: 'US', region: 'Global', strategy: 'Infrastruktur', vintage: 2020, mgr: 'Exempel Infrastructure LP', commit: [[3, 12e6]], moic: 1.45, start: '2020-06-30' },
-    { name: 'Scandinavian Growth Fund II', ccy: 'SEK', country: 'SE', region: 'Norden', strategy: 'Growth', vintage: 2021, mgr: 'Exempel Growth AB', commit: [[1, 150e6], [2, 50e6]], moic: 1.35, start: '2021-12-31' },
-    { name: 'Northern Ventures III', ccy: 'SEK', country: 'SE', region: 'Norden', strategy: 'Venture', vintage: 2022, mgr: 'Exempel Ventures AB', commit: [[2, 60e6]], moic: 0.92, start: '2022-09-30' },
-    { name: 'European Mid-Market Fund VI', ccy: 'EUR', country: 'LU', region: 'Europa', strategy: 'Buyout', vintage: 2024, mgr: 'Exempel Capital S.à r.l.', commit: [[1, 20e6], [3, 8e6]], moic: 1.08, start: '2024-03-31' },
+    { name: 'Nordic Buyout Partners IV', ccy: 'EUR', country: 'SE', region: 'Norden', strategy: 'Buyout', vintage: 2019, mgr: 'Exempel Partners', commit: [[1, 25e6]], moic: 1.9, start: '2019-09-30' },
+    { name: 'Global Infrastructure Fund V', ccy: 'USD', country: 'US', region: 'Global', strategy: 'Infrastruktur', vintage: 2020, mgr: 'Exempel Infrastructure LP', commit: [[1, 12e6]], moic: 1.45, start: '2020-06-30' },
+    { name: 'Scandinavian Growth Fund II', ccy: 'SEK', country: 'SE', region: 'Norden', strategy: 'Growth', vintage: 2021, mgr: 'Exempel Growth AB', commit: [[1, 200e6]], moic: 1.35, start: '2021-12-31' },
+    { name: 'Northern Ventures III', ccy: 'SEK', country: 'SE', region: 'Norden', strategy: 'Venture', vintage: 2022, mgr: 'Exempel Ventures AB', commit: [[1, 60e6]], moic: 0.92, start: '2022-09-30' },
+    { name: 'European Mid-Market Fund VI', ccy: 'EUR', country: 'LU', region: 'Europa', strategy: 'Buyout', vintage: 2024, mgr: 'Exempel Capital S.à r.l.', commit: [[1, 28e6]], moic: 1.08, start: '2024-03-31' },
   ];
   // FX före 2023: använd första kända kurs
   const fxPe = (c: string, d: string) => (c === 'SEK' ? 1 : d < weekdays[0] ? fx[c].get(weekdays[0])! : fxAt(c, d));

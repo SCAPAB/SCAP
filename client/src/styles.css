@@ -109,7 +109,8 @@ strong { font-weight: 600; }
 
 .main { min-width: 0; }
 .topbar { display: flex; gap: 14px; align-items: center; justify-content: flex-end; flex-wrap: wrap; padding: 9px 32px; border-bottom: 1px solid var(--line); background: var(--page); position: sticky; top: 0; z-index: 10; }
-.topbar .menu-btn { display: none; margin-right: auto; }
+.topbar .menu-btn { display: none; }
+.org-name { font-weight: 600; font-size: 13.5px; }
 .content { padding: 26px 32px 56px; max-width: 1520px; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
 .page-head p { margin: 6px 0 0; color: var(--ink-2); max-width: 820px; }
@@ -376,3 +377,5 @@ select.invalid, input.invalid { border-color: var(--neg); box-shadow: inset 2px 
 .lookup-box { border: 1px solid var(--line-strong); padding: 10px 12px; margin-bottom: 14px; background: var(--surface-2); }
 .lookup-box th { background: var(--surface-2); }
 .lookup-box th { position: static; }
+.investor-box { font-size: 14px; font-weight: 500; color: var(--ink); text-transform: none; letter-spacing: 0; padding: 6px 0 2px; }
+.investor-box.unsure { color: var(--neg); }

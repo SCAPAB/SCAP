@@ -236,7 +236,7 @@ function ProposalSummary({ p, instruments, entities, onOpen }: { p: Proposal; in
       <span className="prop-status" aria-hidden>{p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✕' : p.seq}</span>
       <span className="prop-main">
         <strong>{KIND_LABELS[p.kind]}</strong>
-        <span>{ins?.name ?? p.fields.instrument_name?.value ?? 'Instrument saknas'} · {ent?.name ?? 'Enhet saknas'}</span>
+        <span>{ins?.name ?? p.fields.instrument_name?.value ?? 'Instrument saknas'}{!ent && ' · investerare ej bekräftad'}</span>
         <span className="sub">
           {p.fields.date?.value ?? ''}{amount != null ? ` · ${typeof amount === 'number' ? fmt.num(amount) : amount}` : ''}
           {p.status === 'approved' && <> · Godkänd av {p.decided_by_name} {p.decided_at?.slice(0, 16)}{kindRef === 'transaction' && <> · <Link to="/transaktioner" onClick={(e) => e.stopPropagation()}>Transaktion #{refId}</Link></>}{kindRef === 'reconciled' && ' · avstämd'}</>}
@@ -354,13 +354,10 @@ function ProposalEditor({ p, issuer, instruments, entities, onChange, onHighligh
       </div>
 
       <div className="form-grid">
-        <label className="field">Juridisk enhet
-          <select value={p.entity_id ?? ''} onChange={(e) => save({ entity_id: e.target.value || null })} className={!p.entity_id ? 'invalid' : ''}>
-            <option value="">Välj …</option>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+        <label className="field">Investerare
+          <span className={'investor-box' + (p.match?.entity && !p.match.entity.confirmed ? ' unsure' : '')}>{entities.find((e) => e.id === p.entity_id)?.name ?? entities[0]?.name}</span>
           <MatchHint m={p.origin === 'ai' || p.match?.entity?.method === 'manual' ? p.match?.entity : undefined} docText={docInvestor ? String(docInvestor) : null} onShow={() => highlight('investor_label')}
-            onConfirm={() => save({ confirm_match: ['entity'] })} onPick={(id) => save({ entity_id: id })} />
+            onConfirm={() => save({ confirm_match: ['entity'], ...(p.entity_id ? {} : { entity_id: entities[0]?.id }) })} onPick={(id) => save({ entity_id: id })} />
         </label>
         <label className="field">Instrument
           <span className="row" style={{ flexWrap: 'nowrap' }}>

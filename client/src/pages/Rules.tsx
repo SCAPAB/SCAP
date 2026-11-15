@@ -73,7 +73,7 @@ function Aliases() {
         search={(a) => `${a.raw} ${a.issuer ?? ''} ${a.target_name ?? ''}`}
         columns={[
           { key: 'r', label: 'Namn i dokumentet', render: (a) => <strong>{a.raw}</strong> },
-          { key: 'k', label: 'Avser', render: (a) => <span className="badge">{a.kind === 'instrument' ? 'Instrument' : 'Juridisk enhet'}</span> },
+          { key: 'k', label: 'Avser', render: (a) => <span className="badge">{a.kind === 'instrument' ? 'Instrument' : 'Investerare'}</span> },
           { key: 't', label: 'Kopplat till', render: (a) => a.target_name ?? '–' },
           { key: 'i', label: 'Gäller avsändare', render: (a) => a.issuer ?? <span className="muted">alla</span> },
           { key: 'u', label: 'Inlärt', render: (a) => <span className="muted small">{a.created_at.slice(0, 16)} · {a.created_by_name ?? '–'}</span> },

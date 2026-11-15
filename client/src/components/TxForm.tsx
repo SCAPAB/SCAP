@@ -8,13 +8,13 @@ import { LISTED_TX_TYPES, PE_TX_TYPES, TX_LABELS, type Instrument, type Transact
 type Draft = Partial<Record<keyof Transaction, string>>;
 
 export default function TxForm({ initial, instrumentId, onClose }: { initial?: Transaction; instrumentId?: number; onClose: () => void }) {
-  const { entities, selected, bump } = useApp();
+  const { entities, bump } = useApp();
   const { data: instruments } = useFetch<Instrument[]>('/instruments');
   const [d, setD] = useState<Draft>(() =>
     initial
       ? Object.fromEntries(Object.entries(initial).map(([k, v]) => [k, v == null ? '' : String(v)]))
       : {
-        entity_id: String(selected?.length === 1 ? selected[0] : entities[0]?.id ?? ''),
+        entity_id: String(entities[0]?.id ?? ''),
         instrument_id: instrumentId ? String(instrumentId) : '',
         type: '', trade_date: today(), quantity: '', price: '', amount: '', fee: '', fx_rate: '', note: '',
       },
@@ -82,11 +82,6 @@ export default function TxForm({ initial, instrumentId, onClose }: { initial?: T
                 {instruments?.filter((i) => i.type === t).map((i) => <option key={i.id} value={i.id}>{i.name} ({i.currency})</option>)}
               </optgroup>
             ))}
-          </select>
-        </label>
-        <label className="field">Juridisk enhet
-          <select value={d.entity_id} onChange={set('entity_id')} required>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </label>
         <label className="field">Typ

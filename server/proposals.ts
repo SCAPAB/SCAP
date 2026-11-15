@@ -222,9 +222,9 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
   }
   const me = match.entity;
   if (ent && me && me.id === ent.id && !me.confirmed) {
-    checks.push({ level: 'error', code: 'confirm_entity', message: me.method === 'single_holder' || me.method === 'only_entity'
-      ? `Bekräfta enhet: ${ent.name} är vald för att den är enda innehavaren – investeraren framgår inte säkert av dokumentet`
-      : `Bekräfta enhet: "${me.label}" i dokumentet → ${ent.name} (likhet ${Math.round(me.score * 100)} %)` });
+    checks.push({ level: 'error', code: 'confirm_entity', message: me.label
+      ? `Dokumentet anger investeraren "${me.label}", som inte motsvarar ${ent.name}. Bekräfta att posten gäller ${ent.name} – annars avvisa den.`
+      : `Investeraren framgår inte av dokumentet. Bekräfta att posten gäller ${ent.name}.` });
   }
   // PE: enheten ska ha ett åtagande i fonden
   if (ins && ent && ins.type === 'PE_FUND' && kind !== 'COMMITMENT' && !get("SELECT 1 FROM transactions WHERE entity_id=? AND instrument_id=? AND type='COMMITMENT'", ent.id, ins.id)) {
@@ -251,7 +251,7 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
 
   // Investerare enligt dokumentet vs vald enhet
   const inv = str(fields.investor_label);
-  if (ent && inv) {
+  if (ent && inv && me?.confirmed !== false) {
     if (labelMatchesEntity(inv, ent)) checks.push({ level: 'ok', code: 'investor', message: `Investeraren i dokumentet ("${inv}") matchar ${ent.name}` });
     else checks.push({ level: 'warning', code: 'investor', message: `Dokumentet gäller "${inv}" – kontrollera att ${ent.name} är rätt enhet` });
   }

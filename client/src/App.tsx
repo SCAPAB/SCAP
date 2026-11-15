@@ -2,7 +2,6 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { api } from './api';
 import { AppProvider, useApp } from './context';
-import { EntityPicker } from './components/ui';
 import { today } from './format';
 import type { Me } from '../../shared/types';
 import Overview from './pages/Overview';
@@ -101,7 +100,7 @@ const NAV: { group?: string; to: string; label: string; admin?: boolean; badge?:
 ];
 
 function Shell() {
-  const { me, entities, selected, setSelected, asOf, setAsOf, logout, isAdmin } = useApp();
+  const { me, entity, asOf, setAsOf, logout, isAdmin } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
   const loc = useLocation();
   useEffect(() => setMenuOpen(false), [loc.pathname]);
@@ -135,12 +134,13 @@ function Shell() {
       <div className="main">
         <div className="topbar">
           <button className="btn menu-btn" onClick={() => setMenuOpen(!menuOpen)} aria-label="Meny">☰</button>
+          <span className="org-name" title="Juridisk enhet som förvaltas">{entity?.name}{entity?.org_nr ? <span className="muted"> · {entity.org_nr}</span> : null}</span>
+          <span className="spacer" />
           <label className="row small muted">
             Per datum
             <input type="date" value={asOf} max={today()} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
             {asOf !== today() && <button className="btn small" onClick={() => setAsOf(today())}>I dag</button>}
           </label>
-          <EntityPicker entities={entities} selected={selected} onChange={setSelected} />
         </div>
         <div className="content">
           <Routes>

@@ -34,6 +34,7 @@ const admin = requireRole('admin');
 
 api.get('/entities', (_req, res) => res.json(entities()));
 api.post('/entities', admin, (req, res) => {
+  if (get('SELECT 1 FROM entities LIMIT 1')) throw new HttpError(409, 'Programmet hanterar en juridisk enhet. Ändra namn och organisationsnummer i stället.');
   const name = String(req.body?.name ?? '').trim();
   if (!name) throw new HttpError(400, 'Namn krävs');
   const r = run('INSERT INTO entities (name, org_nr) VALUES (?,?)', name, req.body?.org_nr || null);
@@ -50,6 +51,7 @@ api.put('/entities/:id', admin, (req, res) => {
   res.json({ ok: true });
 });
 api.delete('/entities/:id', admin, (req, res) => {
+  if (all('SELECT id FROM entities').length <= 1) throw new HttpError(409, 'Den juridiska enheten kan inte tas bort');
   if (get('SELECT 1 FROM transactions WHERE entity_id=? LIMIT 1', Number(req.params.id))) throw new HttpError(409, 'Enheten har transaktioner och kan inte tas bort');
   run('DELETE FROM pe_valuations WHERE entity_id=?', Number(req.params.id));
   run('DELETE FROM entities WHERE id=?', Number(req.params.id));
@@ -305,16 +307,6 @@ function allocations(ents: number[] | null, asOf: string, filter?: InstrumentTyp
   ].filter((r) => (!filter || filter.includes(r.i.type)) && (!ac || r.i.asset_class === ac));
   const out: Record<string, { label: string; rows: ReturnType<typeof allocate> }> = {};
   for (const [k, d] of Object.entries(DIMENSIONS)) out[k] = { label: d.label, rows: allocate(rows.map((r) => ({ key: d.key(r.i), value: r.v }))) };
-  // Per juridisk enhet
-  const entRows: { key: string; value: number }[] = [];
-  for (const e of entities().filter((e) => !ents || ents.includes(e.id))) {
-    const es = enrichedSnapshot([e.id], asOf);
-    const ok = (i: Instrument) => (!filter || filter.includes(i.type)) && (!ac || i.asset_class === ac);
-    const v = [...es.listed.filter((h) => ok(h.instrument)).map((h) => h.mvBase),
-      ...es.pe.filter((h) => ok(h.instrument)).map((h) => h.navBase)].reduce((a, b) => a + b, 0);
-    if (v) entRows.push({ key: e.name, value: v });
-  }
-  out.entity = { label: 'Juridisk enhet', rows: allocate(entRows) };
   return out;
 }
 

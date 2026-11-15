@@ -70,7 +70,7 @@ export default function InstrumentDetail() {
           <Kpi label="IRR" value={fmt.pct(h.irr)} tone={tone(h.irr)} sub={`I SEK ${fmt.pct(h.irrBase)}`} />
         </div>
       )}
-      {!h && <div className="alert">Inga transaktioner i valda juridiska enheter.</div>}
+      {!h && <div className="alert">Inga transaktioner registrerade för instrumentet.</div>}
 
       <div className="grid g-main">
         <div className="stack">
@@ -89,7 +89,6 @@ export default function InstrumentDetail() {
               pageSize={25}
               columns={[
                 { key: 'd', label: 'Affärsdag', sortValue: (t) => t.trade_date, render: (t) => t.trade_date },
-                { key: 'e', label: 'Enhet', render: (t) => t.entity_name },
                 { key: 't', label: 'Typ', render: (t) => TX_LABELS[t.type] },
                 ...(!pe ? [{ key: 'q', label: 'Antal', num: true, render: (t: Tx) => (t.quantity ? fmt.qty(t.quantity) : '') }, { key: 'p', label: 'Kurs', num: true, render: (t: Tx) => (t.price ? fmt.price(t.price) : '') }] : []),
                 { key: 'a', label: `Belopp ${ins.currency}`, num: true, render: (t) => fmt.dec(t.amount) },
@@ -109,7 +108,6 @@ export default function InstrumentDetail() {
                 pageSize={12}
                 columns={[
                   { key: 'd', label: 'Rapportdatum', render: (v) => v.date },
-                  { key: 'e', label: 'Enhet', render: (v) => v.entity_name },
                   { key: 'n', label: 'NAV', num: true, render: (v) => fmt.dec(v.nav) },
                   { key: 's', label: 'Källa', render: (v) => <span className="muted">{v.source}</span> },
                   ...(canEdit ? [{
@@ -128,51 +126,37 @@ export default function InstrumentDetail() {
         </div>
         <div className="stack">
           <div className="card">
-            <h2>Per juridisk enhet</h2>
-            {data.perEntity.map((e) => (
-              <div key={e.entityIds[0]} style={{ marginBottom: 14 }}>
-                <h3>{e.entityName}</h3>
-                <dl className="facts">
-                  {!pe ? (
-                    <>
-                      <dt>Antal</dt><dd>{fmt.qty(e.quantity)}</dd>
-                      <dt>GAV ({ins.currency})</dt><dd>{fmt.price(e.avgCostLocal)}</dd>
-                      <dt>Marknadsvärde</dt><dd>{fmt.sek(e.mvBase)}</dd>
-                      <dt>Orealiserat</dt><dd className={tone(e.unrealizedBase)}>{fmt.sek(e.unrealizedBase)}</dd>
-                      <dt>Realiserat</dt><dd>{fmt.sek(e.realizedBase)}</dd>
-                    </>
-                  ) : (
-                    <>
-                      <dt>Åtagande</dt><dd>{fmt.num(e.commitment)}</dd>
-                      <dt>Inbetalt</dt><dd>{fmt.num(e.paidIn)}</dd>
-                      <dt>Outnyttjat</dt><dd>{fmt.num(e.uncalled)}</dd>
-                      <dt>Utdelat</dt><dd>{fmt.num(e.distributed)}</dd>
-                      <dt>NAV</dt><dd>{fmt.num(e.nav)}</dd>
-                      <dt>TVPI · IRR</dt><dd>{fmt.multiple(e.tvpi)} · {fmt.pct(e.irr)}</dd>
-                    </>
-                  )}
-                </dl>
-              </div>
-            ))}
-            {!data.perEntity.length && <div className="empty">Inga innehav</div>}
+            <h2>Instrumentfakta</h2>
+            <dl className="facts">
+              <dt>Tillgångsslag</dt><dd>{ac?.label ?? '–'}{ins.sub_class ? ` · ${ins.sub_class}` : ''}</dd>
+              <dt>Förvaltningsform</dt><dd>{TYPE_LABELS[ins.type]}</dd>
+              <dt>Valuta</dt><dd>{ins.currency}</dd>
+              {ins.isin && <><dt>ISIN</dt><dd>{ins.isin}</dd></>}
+              {ins.ticker && <><dt>Ticker</dt><dd>{ins.ticker}</dd></>}
+              {ins.manager && <><dt>{pe ? 'Förvaltare (GP)' : 'Fondbolag'}</dt><dd>{ins.manager}</dd></>}
+              {ins.vintage && <><dt>Vintage</dt><dd>{ins.vintage}</dd></>}
+              {ins.sector && <><dt>{ins.type === 'EQUITY' ? 'Bransch' : 'Inriktning'}</dt><dd>{ins.sector}</dd></>}
+              {!pe && <><dt>Morningstar</dt><dd>{(ins as Instrument & { ms_listing?: string | null }).ms_listing ?? <span className="muted">ej kopplad</span>}</dd></>}
+              {h && !pe && <><div className="sep" /><dt>Kursdatum</dt><dd>{h.priceDate ?? '–'}</dd><dt>Realiserat SEK</dt><dd>{fmt.sek(h.realizedBase)}</dd></>}
+              {h && pe && <><div className="sep" /><dt>Senaste NAV-rapport</dt><dd>{h.navReportDate ?? '–'}</dd><dt>Fees (utanför NAV)</dt><dd>{fmt.num(h.fees)}</dd></>}
+            </dl>
           </div>
         </div>
       </div>
       {editTx && <TxForm initial={editTx === 'new' ? undefined : editTx} instrumentId={ins.id} onClose={() => setEditTx(null)} />}
       {editIns && <InstrumentForm initial={ins} onClose={() => setEditIns(false)} />}
-      {navForm && <NavForm instrument={ins} entities={entities} onClose={() => setNavForm(false)} onSaved={bump} />}
+      {navForm && <NavForm instrument={ins} entityId={entities[0]?.id} onClose={() => setNavForm(false)} onSaved={bump} />}
     </div>
   );
 }
 
-function NavForm({ instrument, entities, onClose, onSaved }: { instrument: Instrument; entities: { id: number; name: string }[]; onClose: () => void; onSaved: () => void }) {
-  const [entity, setEntity] = useState(String(entities[0]?.id ?? ''));
+function NavForm({ instrument, entityId, onClose, onSaved }: { instrument: Instrument; entityId?: number; onClose: () => void; onSaved: () => void }) {
   const [date, setDate] = useState(today());
   const [nav, setNav] = useState('');
   const [error, setError] = useState<string | null>(null);
   const save = async () => {
     try {
-      await api.post('/valuations', { entity_id: entity, instrument_id: instrument.id, date, nav, source: 'Manuell' });
+      await api.post('/valuations', { entity_id: entityId, instrument_id: instrument.id, date, nav, source: 'Manuell' });
       onSaved();
       onClose();
     } catch (e) {
@@ -182,9 +166,8 @@ function NavForm({ instrument, entities, onClose, onSaved }: { instrument: Instr
   return (
     <Modal title={`NAV-rapport – ${instrument.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Avbryt</button><button className="btn primary" onClick={save}>Spara</button></>}>
       <div className="form-grid">
-        <label className="field">Juridisk enhet<select value={entity} onChange={(e) => setEntity(e.target.value)}>{entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
         <label className="field">Rapportdatum (värderingsdag)<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
-        <label className="field full">NAV för enhetens andel ({instrument.currency})<input inputMode="decimal" value={nav} onChange={(e) => setNav(e.target.value)} /></label>
+        <label className="field full">NAV för vår andel ({instrument.currency})<input inputMode="decimal" value={nav} onChange={(e) => setNav(e.target.value)} /></label>
         {error && <div className="alert error full">{error}</div>}
       </div>
     </Modal>

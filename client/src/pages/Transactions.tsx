@@ -58,13 +58,12 @@ export default function Transactions() {
           <DataTable
             rows={data}
             rowKey={(r) => r.id}
-            search={(r) => `${r.instrument_name} ${r.entity_name} ${r.note ?? ''}`}
-            searchPlaceholder="Sök instrument, enhet eller notering"
+            search={(r) => `${r.instrument_name} ${r.note ?? ''}`}
+            searchPlaceholder="Sök instrument eller notering"
             onRowClick={canEdit ? (r) => setEdit(r) : undefined}
             pageSize={50}
             columns={[
               { key: 'd', label: 'Affärsdag', sortValue: (r) => r.trade_date, render: (r) => r.trade_date },
-              { key: 'e', label: 'Enhet', sortValue: (r) => r.entity_name, render: (r) => r.entity_name },
               { key: 'i', label: 'Instrument', sortValue: (r) => r.instrument_name, render: (r) => <Link to={`/instrument/${r.instrument_id}`} onClick={(e) => e.stopPropagation()}>{r.instrument_name}</Link> },
               { key: 'k', label: 'Slag', render: (r) => <span className="badge">{TYPE_LABELS[r.instrument_type]}</span> },
               { key: 't', label: 'Typ', sortValue: (r) => r.type, render: (r) => TX_LABELS[r.type] },

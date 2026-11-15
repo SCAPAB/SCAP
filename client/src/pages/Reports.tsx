@@ -4,7 +4,6 @@ import { today } from '../format';
 
 export default function Reports() {
   const { scope, asOf } = useApp();
-  const [perEntity, setPerEntity] = useState(true);
   const [from, setFrom] = useState(`${today().slice(0, 4)}-01-01`);
   const [to, setTo] = useState(today());
   const q = (o: Record<string, string | null | undefined>) => {
@@ -17,15 +16,14 @@ export default function Reports() {
       <div className="page-head">
         <div>
           <h1>Rapporter</h1>
-          <p>Exportera till CSV (öppnas direkt i Excel). Urval av juridiska enheter följer valet uppe till höger.</p>
+          <p>Exportera till CSV (öppnas direkt i Excel).</p>
         </div>
       </div>
       <div className="grid g-2">
         <div className="card">
           <h2>Innehavsrapport</h2>
           <p className="small muted">Alla innehav per {asOf} med antal, GAV, kurs, anskaffnings- och marknadsvärde, orealiserat/realiserat resultat samt PE-nyckeltal (åtagande, inbetalt, NAV, DPI, TVPI, IRR). Byt datum uppe till höger för historisk rapport.</p>
-          <label className="row small" style={{ margin: '10px 0' }}><input type="checkbox" checked={perEntity} onChange={(e) => setPerEntity(e.target.checked)} /> Uppdelad per juridisk enhet</label>
-          <a className="btn primary" href={`/api/reports/holdings.csv?${q({ entities: scope.entities, asOf, perEntity: perEntity ? '1' : null })}`}>Ladda ner innehavsrapport</a>
+          <a className="btn primary" href={`/api/reports/holdings.csv?${q({ entities: scope.entities, asOf })}`}>Ladda ner innehavsrapport</a>
         </div>
         <div className="card">
           <h2>Transaktionsrapport</h2>

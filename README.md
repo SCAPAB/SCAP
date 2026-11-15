@@ -1,6 +1,6 @@
 # Innehav
 
-Portföljsystem för institutionella investerare. Det samlar direktägda aktier, aktie- och räntefonder samt private equity-fonder för flera juridiska enheter i en och samma vy.
+Portföljsystem för institutionella investerare. Det samlar direktägda aktier, aktie- och räntefonder samt private equity-fonder för en juridisk enhet (namn och org.nr anges under Administration → Organisation).
 
 ## Kör i GitHub Codespaces (ingen installation)
 
@@ -42,11 +42,11 @@ Systemet är uppbyggt som en institutionell kapitalförvaltare (till exempel ett
 | Avkastning | Tidsviktad avkastning per tillgångsslag (1 mån–sedan start) och netto-IRR för slutna fonder |
 | Likviditet och åtaganden | Outnyttjade åtaganden, aviserade anrop, täckningsgrad och kassaflödesprognos enligt Takahashi–Alexander-modellen |
 | Rapportbevakning | Om varje GP har levererat kvartalsrapport (mottagen, väntar eller försenad) |
-| Översikt | Marknadsvärde, tidsviktad avkastning (1 mån, 3 mån, i år, 1 år, 3 år, sedan start), värdeutveckling mot nettoinvesterat kapital, största innehav, fördelning per tillgångsslag, valuta, region, bransch, förvaltare och juridisk enhet, varning för inaktuella kurser och NAV |
+| Översikt | Marknadsvärde, tidsviktad avkastning (1 mån, 3 mån, i år, 1 år, 3 år, sedan start), värdeutveckling mot nettoinvesterat kapital, största innehav, fördelning per tillgångsslag, valuta, region, bransch, förvaltare, varning för inaktuella kurser och NAV |
 | Aktier och fonder | Antal, GAV, kurs, anskaffnings- och marknadsvärde i SEK, orealiserat resultat uppdelat på kurs och valuta, realiserat resultat, utdelningar |
 | PE-fonder | Åtagande, inbetalt, outnyttjat, utdelat, NAV (rullas fram från senaste rapport), DPI, RVPI, TVPI, IRR lokalt och i SEK, kassaflöden per år (J-kurva) |
-| Instrumentvy | Kurshistorik, transaktioner, NAV-rapporter, innehav per juridisk enhet |
-| Urval | Valfria juridiska enheter och valfritt historiskt datum ("per datum") i alla vyer |
+| Instrumentvy | Kurshistorik, transaktioner, NAV-rapporter och instrumentfakta |
+| Urval | Valfritt historiskt datum ("per datum") i alla vyer |
 | Registrering | Transaktioner (köp, sälj, utdelning, avgift, åtagande, kapitalanrop, utdelning/återbetalning), instrument, kurser, valutakurser, NAV |
 | Import | CSV eller inklistrat från Excel för transaktioner, kurser, valutakurser, NAV och instrument. Importen testkörs först och allt-eller-inget gäller |
 | Rapporter | Innehavsrapport (per enhet, valfritt datum) och transaktionsrapport som CSV för Excel, samt utskrift och PDF av alla vyer |
@@ -59,7 +59,7 @@ Grundprincip: **AI föreslår, människan godkänner.** Ingenting sparas i portf
 1. **Ladda upp** PDF- eller bildfiler, gärna flera samtidigt. Samma fil kan inte laddas upp två gånger, eftersom kontrollen görs på filens SHA-256.
 2. **AI-tolkning (Claude)** föreslår poster: kapitalanrop, utdelningar från PE-fonder, NAV från kapitalkontoutdrag, köp och sälj av fondandelar och aktier, aktieutdelningar, kurser och innehav. Varje fält får **värde, säkerhetsgrad, sidnummer och ordagrant citat**.
 3. **Granskning bredvid källan.** Dokumentet visas till vänster, och när du klickar på ett fält **markeras värdet i dokumentet**. Fälten är märkta *AI · säker*, *AI · kontrollera*, *AI · osäker* (måste bekräftas), *Ändrad av dig* (med återställning) eller *Manuell*.
-4. **Matchning** mot juridisk enhet och instrument. Endast ISIN, org.nr, identiskt namn eller ett **inlärt namn** räknas som säker träff. Allt annat måste bekräftas eller väljas bland förslag. Fondnummer (IV/V), vehikel (huvudfond, parallell, feeder, "No. 2" eller co-invest) och andelsklass (A/B, valuta) hålls isär. När en matchning godkänns lärs namnet in per avsändare, så att nästa dokument från samma GP matchas säkert. Systemet varnar om avsändaren inte är fondens registrerade förvaltare, eller om enheten saknar åtagande i fonden.
+4. **Matchning** av investerare och instrument. Anger dokumentet en annan investerare än er enhet måste det bekräftas aktivt. Endast ISIN, org.nr, identiskt namn eller ett **inlärt namn** räknas som säker träff. Allt annat måste bekräftas eller väljas bland förslag. Fondnummer (IV/V), vehikel (huvudfond, parallell, feeder, "No. 2" eller co-invest) och andelsklass (A/B, valuta) hålls isär. När en matchning godkänns lärs namnet in per avsändare, så att nästa dokument från samma GP matchas säkert. Systemet varnar om avsändaren inte är fondens registrerade förvaltare, eller om enheten saknar åtagande i fonden.
 5. **Egna kontroller** som inte bygger på AI: möjliga dubbletter, att delposterna summerar till totalen, att avgiftsdelen stämmer, att antal × kurs stämmer med likvidbeloppet, att försäljningen inte överstiger innehavet, att anropet ryms inom åtagandet, NAV-avvikelse mot förra rapporten justerad för flöden, **avstämning mot kapitalkontot** (åtagande, inbetalt, utdelat, outnyttjat) och **avstämning mot innehavsbesked**, med en knapp som skapar köp- eller säljposten för differensen.
 6. **Förhandsvisning av effekten:** till exempel inbetalt, outnyttjat och NAV före och efter, eller antal, GAV och anskaffningsvärde före och efter.
 7. **Delposter med bokföringskategori:** investering, förvaltningsavgift, fondkostnader, utjämningsränta (utanför åtagandet), återbetalt kapital, återinkallningsbart kapital (ökar outnyttjat åtagande), realiserad vinst, ränta/utdelning och källskatt.
@@ -99,7 +99,7 @@ Krav på servern: Python 3.9 eller senare och `pip install morningstar-data`. Co
 ## Beräkningsprinciper
 
 - **Rapportvaluta** är SEK. Valutakurs anges som SEK per enhet.
-- **Anskaffningsvärde** beräknas enligt genomsnittsmetoden, per juridisk enhet och inklusive courtage. Anskaffningsvärdet i SEK räknas med valutakursen på affärsdagen.
+- **Anskaffningsvärde** beräknas enligt genomsnittsmetoden, inklusive courtage. Anskaffningsvärdet i SEK räknas med valutakursen på affärsdagen.
 - **Valutaeffekt** är anskaffningsvärdet i lokal valuta × dagens valutakurs minus anskaffningsvärdet i SEK.
 - **PE-NAV:** senast rapporterade NAV plus kapitalanropens investeringsdel (avgifter ingår i inbetalt men inte i NAV) och minus utdelningar efter rapportdatum. Saknas rapport används inbetalt minus utdelat. Framräknade värden markeras med *.
 - **Avkastning** är tidsviktad (TWR) och bryts vid varje transaktionsdag (flöden i slutet av dagen). Köp, försäljningar, anrop och utdelningar räknas som externa flöden.

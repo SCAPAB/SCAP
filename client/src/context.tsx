@@ -6,6 +6,8 @@ import type { Entity, Me } from '../../shared/types';
 interface Ctx {
   me: Me;
   entities: Entity[];
+  /** Den juridiska enhet som programmet förvaltar */
+  entity: Entity | null;
   reloadEntities: () => void;
   selected: number[] | null; // null = alla
   setSelected: (s: number[] | null) => void;
@@ -25,14 +27,6 @@ interface Ctx {
 const AppCtx = createContext<Ctx | null>(null);
 export const useApp = () => useContext(AppCtx)!;
 
-const load = <T,>(k: string, d: T): T => {
-  try {
-    const v = localStorage.getItem(k);
-    return v ? (JSON.parse(v) as T) : d;
-  } catch {
-    return d;
-  }
-};
 const save = (k: string, v: unknown) => {
   try {
     localStorage.setItem(k, JSON.stringify(v));
@@ -43,7 +37,7 @@ const save = (k: string, v: unknown) => {
 
 export function AppProvider({ me, onLogout, children }: { me: Me; onLogout: () => void; children: ReactNode }) {
   const [entities, setEntities] = useState<Entity[]>([]);
-  const [selected, setSel] = useState<number[] | null>(() => load('innehav.entities', null));
+  const [selected, setSel] = useState<number[] | null>(null);
   const [asOf, setAsOfState] = useState<string>(today());
   const [version, setVersion] = useState(0);
 
@@ -59,7 +53,7 @@ export function AppProvider({ me, onLogout, children }: { me: Me; onLogout: () =
   const isToday = asOf === today();
   const scope = { entities: selected ? selected.join(',') || '0' : null, asOf: isToday ? null : asOf };
   const value: Ctx = {
-    me, entities, reloadEntities, selected, setSelected, asOf, setAsOf: setAsOfState, scope,
+    me, entities, entity: entities[0] ?? null, reloadEntities, selected, setSelected, asOf, setAsOf: setAsOfState, scope,
     scopeQs: (extra = {}) => qs({ ...scope, ...extra }),
     canEdit: me.role !== 'viewer', isAdmin: me.role === 'admin', version, bump: () => setVersion((v) => v + 1),
     logout: () => {

@@ -102,7 +102,7 @@ export default function ImportPage() {
           <button className="btn small" onClick={() => { setCsv(k.example); setResult(null); }}>Använd exemplet</button>
           <ul className="small muted" style={{ paddingLeft: 18, marginTop: 14 }}>
             <li>Datum anges ÅÅÅÅ-MM-DD.</li>
-            <li>Enhet: namn, org.nr eller id. Instrument: ISIN, namn, ticker eller id.</li>
+            <li>Kolumnen enhet kan utelämnas. Instrument anges med ISIN, namn, ticker eller id.</li>
             {kind === 'transactions' && <li>Typ: Köp, Sälj, Utdelning, Avgift, Åtagande, Kapitalanrop, Återbetalning.</li>}
             {kind === 'transactions' && <li>Lämnas valutakurs tom hämtas den från registrerade valutakurser.</li>}
             <li>Befintliga kurser/NAV för samma datum skrivs över.</li>

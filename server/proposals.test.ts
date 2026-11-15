@@ -151,3 +151,13 @@ test('fyra ögon-principen: samma användare kan inte både granska och attester
   P.approve(p.id, 11, { acknowledgeWarnings: true });
   db.run("UPDATE settings SET value='off' WHERE key='dual_control'");
 });
+
+test('en juridisk enhet: dokument som anger annan investerare kräver bekräftelse', async () => {
+  const { matchEntity } = await import('./matching.ts');
+  const one = [{ id: 1, name: 'Lantbrukarnas Ekonomi AB', org_nr: null }];
+  const other = matchEntity('Pensionskassan Exempel', null, null, one);
+  assert.equal(other.id, 1);
+  assert.equal(other.confirmed, false, 'annan investerare ska inte godtas automatiskt');
+  const ours = matchEntity('Lantbrukarnas Ekonomi AB (Investor No. 0117)', null, null, one);
+  assert.equal(ours.confirmed, true);
+});

@@ -2,15 +2,15 @@ import { useState } from 'react';
 import { api } from '../api';
 import { useApp, useFetch } from '../context';
 import { DataTable, ErrorBox, Loading, Modal } from '../components/ui';
-import type { Entity, Role } from '../../../shared/types';
+import type { Role } from '../../../shared/types';
 
 export default function Admin() {
   const [tab, setTab] = useState<'entities' | 'users' | 'controls' | 'audit'>('entities');
   return (
     <div>
-      <div className="page-head"><div><h1>Administration</h1><p>Juridiska enheter, användare och ändringslogg.</p></div></div>
+      <div className="page-head"><div><h1>Administration</h1><p>Organisation, användare, kontroller och ändringslogg.</p></div></div>
       <div className="tabs">
-        <button className={tab === 'entities' ? 'on' : ''} onClick={() => setTab('entities')}>Juridiska enheter</button>
+        <button className={tab === 'entities' ? 'on' : ''} onClick={() => setTab('entities')}>Organisation</button>
         <button className={tab === 'users' ? 'on' : ''} onClick={() => setTab('users')}>Användare</button>
         <button className={tab === 'controls' ? 'on' : ''} onClick={() => setTab('controls')}>Kontroller</button>
         <button className={tab === 'audit' ? 'on' : ''} onClick={() => setTab('audit')}>Ändringslogg</button>
@@ -24,47 +24,29 @@ export default function Admin() {
 }
 
 function Entities() {
-  const { entities, bump } = useApp();
-  const [edit, setEdit] = useState<Partial<Entity> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { entity, bump } = useApp();
+  const [d, setD] = useState<{ name: string; org_nr: string }>({ name: entity?.name ?? '', org_nr: entity?.org_nr ?? '' });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  if (!entity) return <Loading />;
   const save = async () => {
     try {
-      if (edit?.id) await api.put(`/entities/${edit.id}`, edit);
-      else await api.post('/entities', edit);
-      setEdit(null);
+      await api.put(`/entities/${entity.id}`, d);
+      setMsg({ ok: true, text: 'Sparat' });
       bump();
     } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-  const del = async () => {
-    if (!edit?.id || !confirm(`Ta bort ${edit.name}?`)) return;
-    try {
-      await api.del(`/entities/${edit.id}`);
-      setEdit(null);
-      bump();
-    } catch (e) {
-      setError((e as Error).message);
+      setMsg({ ok: false, text: (e as Error).message });
     }
   };
   return (
-    <div className="card">
-      <div className="card-head"><h2>Juridiska enheter</h2><button className="btn primary" onClick={() => { setError(null); setEdit({}); }}>+ Ny enhet</button></div>
-      <DataTable rows={entities} rowKey={(e) => e.id} onRowClick={(e) => { setError(null); setEdit(e); }}
-        columns={[
-          { key: 'n', label: 'Namn', render: (e) => e.name },
-          { key: 'o', label: 'Organisationsnummer', render: (e) => e.org_nr ?? '–' },
-        ]} />
-      {edit && (
-        <Modal title={edit.id ? 'Redigera enhet' : 'Ny juridisk enhet'} onClose={() => setEdit(null)}
-          footer={<>{edit.id && <button className="btn danger" style={{ marginRight: 'auto' }} onClick={del}>Ta bort</button>}<button className="btn" onClick={() => setEdit(null)}>Avbryt</button><button className="btn primary" onClick={save}>Spara</button></>}>
-          <div className="form-grid">
-            <label className="field full">Namn<input value={edit.name ?? ''} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>
-            <label className="field full">Organisationsnummer<input value={edit.org_nr ?? ''} onChange={(e) => setEdit({ ...edit, org_nr: e.target.value })} /></label>
-            {error && <div className="alert error full">{error}</div>}
-          </div>
-        </Modal>
-      )}
+    <div className="card" style={{ maxWidth: 640 }}>
+      <h2>Juridisk enhet som förvaltas</h2>
+      <p className="small muted">Programmet förvaltar en juridisk enhet. Namn och organisationsnummer används när AI-tolkningen kontrollerar att ett dokument avser rätt investerare.</p>
+      <div className="form-grid">
+        <label className="field full">Namn<input value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} /></label>
+        <label className="field full">Organisationsnummer<input value={d.org_nr} onChange={(e) => setD({ ...d, org_nr: e.target.value })} placeholder="556000-0000" /></label>
+      </div>
+      <div className="row mt"><button className="btn primary" onClick={save} disabled={!d.name.trim()}>Spara</button></div>
+      {msg && <div className={'alert mt ' + (msg.ok ? 'ok' : 'error')}>{msg.text}</div>}
     </div>
   );
 }
@@ -109,7 +91,7 @@ function Users() {
           { key: 'r', label: 'Roll', render: (u) => <span className="badge">{ROLES[u.role]}</span> },
           { key: 'c', label: 'Skapad', render: (u) => <span className="muted">{u.created_at.slice(0, 10)}</span> },
         ]} />
-      <p className="small muted">Läsare kan se allt. Redigerare kan dessutom registrera transaktioner, kurser och importera. Administratörer hanterar enheter och användare.</p>
+      <p className="small muted">Läsare kan se allt. Redigerare kan dessutom registrera transaktioner, kurser och importera. Administratörer hanterar organisation och användare.</p>
       {edit && (
         <Modal title={edit.id ? 'Redigera användare' : 'Ny användare'} onClose={() => setEdit(null)}
           footer={<>{edit.id && <button className="btn danger" style={{ marginRight: 'auto' }} onClick={del}>Ta bort</button>}<button className="btn" onClick={() => setEdit(null)}>Avbryt</button><button className="btn primary" onClick={save}>Spara</button></>}>
