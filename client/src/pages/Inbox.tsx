@@ -7,7 +7,7 @@ import { DataTable, ErrorBox, Loading, Seg } from '../components/ui';
 export interface DocListRow {
   id: number; filename: string; mime: string; status: 'processing' | 'review' | 'done' | 'error' | 'manual'; doc_type: string | null; doc_type_label: string | null;
   issuer: string | null; summary: string | null; error: string | null; uploaded_at: string; uploader: string | null;
-  pending: number; approved: number; rejected: number; total: number;
+  funds: string | null; pending: number; prepared: number; approved: number; rejected: number; total: number;
 }
 
 export const STATUS: Record<DocListRow['status'], { label: string; cls: string }> = {
@@ -68,7 +68,7 @@ export default function Inbox() {
           <p>Ladda upp underlag – kapitalanrop, utdelningar, kapitalkontoutdrag, avräkningsnotor, innehavsbesked. AI föreslår, du granskar och godkänner varje post.</p>
         </div>
         <div className="row">
-          <Link className="btn" to="/inkorg/regler">Tolkningsregler</Link>
+          <Link className="btn" to="/inkorg/regler">Regler och inlärda namn</Link>
         </div>
       </div>
       {ai && !ai.enabled && (
@@ -113,7 +113,7 @@ export default function Inbox() {
             rows={rows}
             rowKey={(r) => r.id}
             onRowClick={(r) => nav(`/inkorg/${r.id}`)}
-            search={(r) => `${r.filename} ${r.issuer ?? ''} ${r.summary ?? ''} ${r.doc_type_label ?? ''}`}
+            search={(r) => `${r.filename} ${r.issuer ?? ''} ${r.summary ?? ''} ${r.doc_type_label ?? ''} ${r.funds ?? ''}`}
             searchPlaceholder="Sök dokument, avsändare"
             empty={filter === 'todo' ? 'Inget att granska just nu' : 'Inga dokument'}
             toolbar={<Seg value={filter} onChange={setFilter} options={[{ value: 'todo', label: `Att hantera (${todo})` }, { value: 'done', label: 'Klara' }, { value: 'all', label: 'Alla' }]} />}
@@ -129,11 +129,12 @@ export default function Inbox() {
               },
               { key: 'type', label: 'Typ', sortValue: (r) => r.doc_type_label, render: (r) => r.doc_type_label ?? <span className="muted">–</span> },
               { key: 'issuer', label: 'Avsändare', sortValue: (r) => r.issuer, render: (r) => r.issuer ?? <span className="muted">–</span> },
+              { key: 'funds', label: 'Avser', sortValue: (r) => r.funds, render: (r) => <span className="wrap-cell small" style={{ maxWidth: 220 }}>{r.funds?.split(',').join(', ') ?? <span className="muted">ej matchat</span>}</span> },
               {
                 key: 'prog', label: 'Poster', num: true, sortValue: (r) => r.pending,
                 render: (r) => (r.total ? <span title={`${r.approved} godkända, ${r.rejected} avvisade, ${r.pending} kvar`}>{r.approved + r.rejected} / {r.total}</span> : <span className="muted">–</span>),
               },
-              { key: 'status', label: 'Status', sortValue: (r) => r.status, render: (r) => <span className={'badge ' + STATUS[r.status].cls}>{STATUS[r.status].label}</span> },
+              { key: 'status', label: 'Status', sortValue: (r) => r.status, render: (r) => (r.status === 'review' && r.prepared > 0 && r.prepared === r.pending ? <span className="badge accent">Väntar på attest</span> : <span className={'badge ' + STATUS[r.status].cls}>{STATUS[r.status].label}</span>) },
               { key: 'up', label: 'Uppladdad', sortValue: (r) => r.uploaded_at, render: (r) => <span className="muted small">{r.uploaded_at.slice(0, 16)} · {r.uploader ?? '–'}</span> },
             ]}
           />

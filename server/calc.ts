@@ -13,6 +13,7 @@ import type {
   AllocationRow, Cashflow, Instrument, ListedHolding, PeHolding, PeriodReturn, SeriesPoint, Transaction,
 } from '../shared/types.ts';
 import { xirr } from './xirr.ts';
+export { xirr as xirrSafe };
 
 const EPS = 1e-9;
 
@@ -204,6 +205,8 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
   const sorted = txs.filter((t) => t.trade_date <= asOf).sort((a, b) => a.trade_date.localeCompare(b.trade_date) || a.id - b.id);
   const val = market.nav(entityId, instrument.id, asOf);
   let rollForward = 0; // flöden efter senaste NAV-rapport
+  let drawnOnCommitment = 0; // anropat som minskar åtagandet
+  let recallable = 0; // återinkallningsbara utdelningar som återställer åtagandet
   for (const t of sorted) {
     const amt = t.amount + (t.type === 'COMMITMENT' ? 0 : t.fee);
     switch (t.type) {
@@ -213,6 +216,7 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
       case 'CALL':
         // amount = investering (ökar NAV), fee = förvaltningsavgift/kostnader (ingår i inbetalt men inte i NAV)
         h.called += amt;
+        drawnOnCommitment += amt - (t.outside_commitment ?? 0);
         h.paidInBase += amt * t.fx_rate;
         h.flowsLocal.push({ date: t.trade_date, amount: -amt });
         h.flowsBase.push({ date: t.trade_date, amount: -amt * t.fx_rate });
@@ -227,6 +231,7 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
       case 'DISTRIBUTION': {
         const net = t.amount - t.fee;
         h.distributed += net;
+        recallable += t.recallable ?? 0;
         h.distributedBase += net * t.fx_rate;
         h.flowsLocal.push({ date: t.trade_date, amount: net });
         h.flowsBase.push({ date: t.trade_date, amount: net * t.fx_rate });
@@ -237,7 +242,8 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
   }
   h.fx = market.fxRate(instrument.currency, asOf);
   h.paidIn = h.called + h.fees;
-  h.uncalled = Math.max(0, h.commitment - h.called);
+  h.uncalled = Math.max(0, h.commitment - drawnOnCommitment + recallable);
+  h.calledPct = h.commitment > EPS ? drawnOnCommitment / h.commitment : null;
   if (val) {
     h.nav = Math.max(0, val.value + rollForward);
     h.navReportDate = val.date;
@@ -255,7 +261,6 @@ function finishPe(h: PeWork, asOf: string) {
   h.navBase = h.nav * h.fx;
   h.uncalledBase = h.uncalled * h.fx;
   h.pnlBase = h.navBase + h.distributedBase - h.paidInBase;
-  h.calledPct = h.commitment > EPS ? h.called / h.commitment : null;
   if (h.paidIn > EPS) {
     h.dpi = h.distributed / h.paidIn;
     h.rvpi = h.nav / h.paidIn;
@@ -277,6 +282,7 @@ export function sumPe(parts: PeWork[], asOf: string): PeWork {
     h.navEstimated ||= p.navEstimated;
     if (p.navReportDate && (!h.navReportDate || p.navReportDate < h.navReportDate)) h.navReportDate = p.navReportDate;
   }
+  h.calledPct = h.commitment > EPS ? 1 - h.uncalled / h.commitment : null;
   finishPe(h, asOf);
   return h;
 }
@@ -378,36 +384,34 @@ export function seriesDates(from: string, to: string, stepDays: number): string[
   return out;
 }
 
+/**
+ * Värdeserie med exakt tidsviktad avkastning: perioden bryts vid varje transaktionsdag så att
+ * kassaflöden alltid ligger i periodens slut (r = (V1 − F − V0) / V0). Det undviker Modified Dietz
+ * felkällor när ett innehav startar mitt i en period. Endast rutnätsdatum returneras.
+ */
 export function valueSeries(data: PortfolioData, from: string, to: string, stepDays = 7): SeriesPoint[] {
-  const dates = seriesDates(from, to, stepDays);
+  const grid = seriesDates(from, to, stepDays);
+  const gridSet = new Set(grid);
   const txs = [...data.transactions].sort((a, b) => a.trade_date.localeCompare(b.trade_date));
+  const breaks = new Set(grid);
+  for (const t of txs) if (t.trade_date > from && t.trade_date <= to) breaks.add(t.trade_date);
+  const dates = [...breaks].sort();
   const points: SeriesPoint[] = [];
   let ti = 0;
   let netInvested = 0;
-  // Nettoinvestering före start
   while (ti < txs.length && txs[ti].trade_date <= dates[0]) netInvested += externalFlow(txs[ti++]);
   let index = 100;
   let prevValue = totalValue(snapshot(data, dates[0]));
   points.push({ date: dates[0], value: prevValue, netInvested, index });
   for (let i = 1; i < dates.length; i++) {
-    const d0 = dates[i - 1];
     const d1 = dates[i];
-    const span = (Date.parse(d1) - Date.parse(d0)) / 86_400_000 || 1;
     let flow = 0;
-    let weighted = 0;
-    while (ti < txs.length && txs[ti].trade_date <= d1) {
-      const f = externalFlow(txs[ti]);
-      const w = (Date.parse(d1) - Date.parse(txs[ti].trade_date)) / 86_400_000 / span;
-      flow += f;
-      weighted += f * w;
-      ti++;
-    }
+    while (ti < txs.length && txs[ti].trade_date <= d1) flow += externalFlow(txs[ti++]);
     netInvested += flow;
     const value = totalValue(snapshot(data, d1));
-    const denom = prevValue + weighted;
-    const r = denom > EPS ? (value - prevValue - flow) / denom : 0;
+    const r = prevValue > EPS ? (value - flow - prevValue) / prevValue : 0;
     index *= 1 + (isFinite(r) ? r : 0);
-    points.push({ date: d1, value, netInvested, index });
+    if (gridSet.has(d1)) points.push({ date: d1, value, netInvested, index });
     prevValue = value;
   }
   return points;
@@ -449,4 +453,45 @@ export function allocate(items: { key: string; value: number }[]): AllocationRow
   return [...m]
     .map(([key, value]) => ({ key, value, share: total ? value / total : 0 }))
     .sort((a, b) => b.value - a.value);
+}
+
+// ---------------------------------------------------------------------------
+// Kassaflödesprognos för slutna fonder – Takahashi & Alexander (2002), Yale-modellen
+//   Anrop:       C_t = RC_t × outnyttjat åtagande
+//   Utdelningar: D_t = RD_t × NAV_{t-1} × (1 + G),  RD_t = max(Y, (ålder/L)^B)
+//   NAV:         NAV_t = NAV_{t-1} × (1 + G) + C_t − D_t
+// ---------------------------------------------------------------------------
+
+export interface TaParams { growth: number; life: number; bow: number; yield: number; rc: number[] }
+
+export const TA_DEFAULTS: Record<string, TaParams> = {
+  Buyout: { growth: 0.12, life: 12, bow: 2.5, yield: 0, rc: [0.25, 0.333, 0.5] },
+  Growth: { growth: 0.13, life: 12, bow: 2.5, yield: 0, rc: [0.25, 0.333, 0.5] },
+  Venture: { growth: 0.14, life: 13, bow: 2.8, yield: 0, rc: [0.2, 0.25, 0.333, 0.5] },
+  Secondaries: { growth: 0.11, life: 10, bow: 2.0, yield: 0.05, rc: [0.4, 0.5, 0.5] },
+  Infrastruktur: { growth: 0.08, life: 15, bow: 1.5, yield: 0.04, rc: [0.25, 0.333, 0.5] },
+  Fastigheter: { growth: 0.08, life: 10, bow: 1.8, yield: 0.03, rc: [0.3, 0.4, 0.5] },
+  default: { growth: 0.1, life: 12, bow: 2.5, yield: 0, rc: [0.25, 0.333, 0.5] },
+};
+
+export interface TaYear { year: number; calls: number; distributions: number; nav: number; uncalled: number }
+
+/** Prognos per kalenderår från och med året efter asOf. Belopp i samma valuta som indata. */
+export function taForecast(p: { vintage: number; nav: number; uncalled: number; asOfYear: number; years: number; params: TaParams }): TaYear[] {
+  const out: TaYear[] = [];
+  let nav = p.nav;
+  let unc = p.uncalled;
+  for (let k = 1; k <= p.years; k++) {
+    const year = p.asOfYear + k;
+    const age = Math.max(1, year - p.vintage + 1);
+    const rc = p.params.rc[Math.min(age - 1, p.params.rc.length - 1)];
+    const calls = unc * rc;
+    const rd = Math.min(1, Math.max(p.params.yield, Math.pow(Math.min(age, p.params.life) / p.params.life, p.params.bow)));
+    const grown = nav * (1 + p.params.growth);
+    const dist = age >= p.params.life ? grown : grown * rd;
+    nav = Math.max(0, grown + calls - dist);
+    unc = Math.max(0, unc - calls);
+    out.push({ year, calls, distributions: dist, nav, uncalled: unc });
+  }
+  return out;
 }

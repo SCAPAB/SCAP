@@ -102,9 +102,9 @@ console.log(`Skapar demodokument i ${OUT}`);
       instrument_name: F('Nordic Buyout Partners IV SCSp', 'Nordic Buyout Partners IV SCSp'), date: F(due, `Due Date: ${longDate(due)}`),
       currency: F('EUR', 'Amount (EUR)'), amount: F(total, `Total amount due ${en(total)}`), fee: F(r2(mgmt + exp), `Management fee Q4 2026 ${en(mgmt)} · Partnership expenses ${en(exp)}`, 'medium'),
       line_items: [
-        { description: 'Investment in portfolio company – Project Falcon', amount: invest, affects_nav: true, page: 1 },
-        { description: 'Management fee Q4 2026', amount: mgmt, affects_nav: false, page: 1 },
-        { description: 'Partnership expenses', amount: exp, affects_nav: false, page: 1 },
+        { description: 'Investment in portfolio company – Project Falcon', amount: invest, category: 'investment', page: 1 },
+        { description: 'Management fee Q4 2026', amount: mgmt, category: 'mgmt_fee', page: 1 },
+        { description: 'Partnership expenses', amount: exp, category: 'expenses', page: 1 },
       ],
       note: 'Avgiftsbeloppet är summan av förvaltningsavgift och fondkostnader.',
     })],
@@ -204,6 +204,43 @@ console.log(`Skapar demodokument i ${OUT}`);
       amount: F(r2(l.qty * l.px), `${sv(l.qty * l.px, 2)} ${l.i.currency}`),
     })),
     warnings: [],
+  });
+}
+// 5. Utdelningsbesked från parallellvehikel med återinkallningsbar del – European Mid-Market Fund VI, Demo Pensionsstiftelse
+{
+  const e = ent('Demo Pensionsstiftelse');
+  const pay = weekday(addDays(today, -6), -1);
+  const roc = 310_000; const gain = 145_250.4; const income = 18_400; const wht = 0;
+  const gross = r2(roc + gain + income);
+  const d = await Doc.create();
+  d.header('Exempel Capital', 'European Mid-Market Fund VI (No. 2) SCSp  ·  Luxembourg');
+  d.line('DISTRIBUTION NOTICE', 16, true); d.gap(4);
+  d.line(`Payment date: ${longDate(pay)}`); d.line(`Limited Partner: ${e.name}  ·  Investor ID 30042`); d.gap(10);
+  const xs = [50, 545];
+  d.row(['Component', 'Amount (EUR)'], xs, true); d.rule();
+  d.row(['Return of capital – bridge financing (recallable)', en(roc)], xs);
+  d.row(['Realised gain – sale of Nordic Packaging Group', en(gain)], xs);
+  d.row(['Interest income', en(income)], xs);
+  d.row(['Withholding tax', en(wht)], xs); d.rule();
+  d.row(['Net distribution', en(gross - wht)], xs, true); d.gap(10);
+  d.line('The return of capital is recallable in accordance with clause 6.4 of the LPA and increases your unfunded commitment accordingly.', 8);
+  d.footer('Demodokument – fiktivt innehåll skapat av Innehav.');
+  await d.save('5 Utdelning European Mid-Market Fund VI.pdf', {
+    document_type: 'distribution_notice', summary: `Utdelning från European Mid-Market Fund VI (parallellvehikel No. 2) till ${e.name}, varav ${en(roc, 0)} EUR återinkallningsbart.`,
+    issuer: F('Exempel Capital', 'Exempel Capital'), investor_label: F(`${e.name} (Investor ID 30042)`, `Limited Partner: ${e.name} · Investor ID 30042`),
+    items: [item({
+      kind: 'DISTRIBUTION', investor_label: F(`${e.name} (Investor ID 30042)`, `Limited Partner: ${e.name} · Investor ID 30042`),
+      instrument_name: F('European Mid-Market Fund VI (No. 2) SCSp', 'European Mid-Market Fund VI (No. 2) SCSp'),
+      date: F(pay, `Payment date: ${longDate(pay)}`), currency: F('EUR', 'Amount (EUR)'),
+      amount: F(gross, `Net distribution ${en(gross - wht)}`), fee: F(wht, `Withholding tax ${en(wht)}`),
+      line_items: [
+        { description: 'Return of capital – bridge financing (recallable)', amount: roc, category: 'recallable', page: 1 },
+        { description: 'Realised gain – sale of Nordic Packaging Group', amount: gain, category: 'gain', page: 1 },
+        { description: 'Interest income', amount: income, category: 'income', page: 1 },
+      ],
+      note: 'Återbetalt kapital är återinkallningsbart enligt LPA 6.4.',
+    })],
+    warnings: ['Dokumentet avser parallellvehikeln "(No. 2)" – kontrollera att det är samma åtagande som i registret.'],
   });
 }
 console.log('Klart. Starta med: npm run dev:demo');

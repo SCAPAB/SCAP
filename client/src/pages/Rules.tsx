@@ -19,7 +19,7 @@ export default function Rules() {
       <div className="page-head">
         <div>
           <div className="small"><Link to="/inkorg">← Inkorg</Link></div>
-          <h1>Tolkningsregler</h1>
+          <h1>Tolkningsregler och inlärda namn</h1>
           <p>Avsändarspecifika instruktioner som skickas med till AI:n. Lägg till en regel när samma fel återkommer från en GP, ett fondbolag eller en bank.</p>
         </div>
         {canEdit && <button className="btn primary" onClick={() => setEdit('new')}>+ Ny regel</button>}
@@ -38,6 +38,7 @@ export default function Rules() {
           ]}
         />
       </div>
+      <Aliases />
       {edit && (
         <RuleModal
           issuer={edit === 'new' ? '' : edit.issuer}
@@ -47,6 +48,38 @@ export default function Rules() {
           onSaved={() => setTick((x) => x + 1)}
         />
       )}
+    </div>
+  );
+}
+
+interface Alias { id: number; kind: 'instrument' | 'entity'; raw: string; issuer: string | null; target_name: string | null; created_at: string; created_by_name: string | null }
+
+/** Namn som systemet lärt sig när användare godkänt matchningar. */
+function Aliases() {
+  const { canEdit } = useApp();
+  const [tick, setTick] = useState(0);
+  const { data } = useFetch<Alias[]>('/aliases', [tick]);
+  if (!data) return null;
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>Inlärda namn</h2>
+        <span className="small muted">Skapas automatiskt när en matchning godkänns. Nästa dokument med samma namn från samma avsändare matchas då säkert.</span>
+      </div>
+      <DataTable
+        rows={data}
+        rowKey={(a) => a.id}
+        empty="Inga inlärda namn ännu"
+        search={(a) => `${a.raw} ${a.issuer ?? ''} ${a.target_name ?? ''}`}
+        columns={[
+          { key: 'r', label: 'Namn i dokumentet', render: (a) => <strong>{a.raw}</strong> },
+          { key: 'k', label: 'Avser', render: (a) => <span className="badge">{a.kind === 'instrument' ? 'Instrument' : 'Juridisk enhet'}</span> },
+          { key: 't', label: 'Kopplat till', render: (a) => a.target_name ?? '–' },
+          { key: 'i', label: 'Gäller avsändare', render: (a) => a.issuer ?? <span className="muted">alla</span> },
+          { key: 'u', label: 'Inlärt', render: (a) => <span className="muted small">{a.created_at.slice(0, 16)} · {a.created_by_name ?? '–'}</span> },
+          ...(canEdit ? [{ key: 'x', label: '', render: (a: Alias) => <button className="btn small ghost danger" onClick={async () => { if (confirm('Ta bort det inlärda namnet?')) { await api.del(`/aliases/${a.id}`); setTick((x) => x + 1); } }}>Ta bort</button> }] : []),
+        ]}
+      />
     </div>
   );
 }

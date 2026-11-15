@@ -47,7 +47,7 @@ export default function Overview() {
       <div className="kpis">
         <Kpi hero label="Marknadsvärde" value={fmt.msek(t.marketValue)} sub={`${t.holdingsCount} innehav`} />
         <Kpi label="Avkastning i år (TWR)" value={fmt.signedPct(ytd)} tone={tone(ytd)} sub={`Värdeförändring ${fmt.msek(t.ytdChange)}`} />
-        <Kpi label="Orealiserat resultat" value={fmt.msek(t.unrealized)} tone={tone(t.unrealized)} sub="Aktier och fonder" />
+        <Kpi label="Orealiserat resultat" value={fmt.msek(t.unrealized)} tone={tone(t.unrealized)} sub="Noterat: direktägt och öppna fonder" />
         <Kpi label="Utdelningar i år" value={fmt.msek(t.ytdDividends)} sub={`Nettoinvesterat i år ${fmt.msek(t.ytdNetFlows)}`} />
         <Kpi label="Outnyttjade åtaganden" value={fmt.msek(t.uncalledCommitments)} sub={`Total exponering ${fmt.msek(t.totalExposure)}`} title="Kvarvarande åtaganden i PE-fonder som kan anropas" />
       </div>
@@ -73,7 +73,7 @@ export default function Overview() {
                 </div>
               ))}
             </div>
-            <div className="small muted" style={{ marginTop: 8 }}>Tidsviktad avkastning (länkad Modified Dietz, veckovis) inklusive utdelningar, efter avgifter, i SEK.</div>
+            <div className="small muted" style={{ marginTop: 8 }}>Tidsviktad avkastning (TWR) i SEK, inklusive utdelningar och efter avgifter. Perioderna bryts vid varje kassaflöde.</div>
           </div>
           <div className="card">
             <div className="card-head"><h2>Största innehav</h2></div>
@@ -95,21 +95,38 @@ export default function Overview() {
           </div>
         </div>
         <div className="stack">
-          <div className="card">
-            <h2>Tillgångsslag</h2>
-            <dl className="facts">
-              <dt><Link to="/aktier">Direktägda aktier</Link></dt><dd>{fmt.msek(t.equities)}</dd>
-              <dt><Link to="/fonder">Fonder</Link></dt><dd>{fmt.msek(t.funds)}</dd>
-              <dt><Link to="/pe">Private equity (NAV)</Link></dt><dd>{fmt.msek(t.privateEquity)}</dd>
-              <div className="sep" />
-              <dt><strong>Totalt</strong></dt><dd>{fmt.msek(t.marketValue)}</dd>
-              <dt>Outnyttjade åtaganden</dt><dd>{fmt.msek(t.uncalledCommitments)}</dd>
-            </dl>
-          </div>
-          <AllocationCard allocations={data.allocations} initial="assetClass" />
-          <AllocationCard allocations={data.allocations} initial="currency" title="Fördelning – alternativ vy" />
+          <PolicyCard />
+          <AllocationCard allocations={data.allocations} initial="currency" title="Fördelning" exclude={['assetClass']} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Kompakt bild av allokeringen mot policyportföljen. */
+function PolicyCard() {
+  const { scopeQs } = useApp();
+  const { data } = useFetch<{ total: number; rows: { key: string; label: string; path: string; value: number; share: number; target: number | null; min: number | null; max: number | null; status: string }[] }>('/portfolio/allocation' + scopeQs());
+  if (!data) return <div className="card"><Loading /></div>;
+  return (
+    <div className="card">
+      <div className="card-head"><h2>Tillgångsslag mot policy</h2><Link to="/allokering" className="small">Detaljer →</Link></div>
+      <table className="policy-mini">
+        <thead><tr><th /><th className="num">Värde</th><th className="num">Vikt</th><th className="num">Mål</th></tr></thead>
+        <tbody>
+          {data.rows.map((r) => (
+            <tr key={r.key}>
+              <td><Link to={`/tillgangsslag/${r.path}`}>{r.label}</Link></td>
+              <td className="num">{fmt.msek(r.value)}</td>
+              <td className={'num ' + (r.status === 'ok' ? '' : 'neg')} title={r.status === 'ok' ? 'Inom intervall' : 'Utanför tillåtet intervall'}>
+                {fmt.pct(r.share)}{r.status !== 'ok' && r.status !== 'none' && ' !'}
+              </td>
+              <td className="num muted">{r.target == null ? '–' : fmt.pct(r.target, 0)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot><tr><td>Totalt</td><td className="num">{fmt.msek(data.total)}</td><td className="num">100 %</td><td /></tr></tfoot>
+      </table>
     </div>
   );
 }

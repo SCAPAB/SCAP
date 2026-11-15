@@ -5,17 +5,19 @@ import { DataTable, ErrorBox, Loading, Modal } from '../components/ui';
 import type { Entity, Role } from '../../../shared/types';
 
 export default function Admin() {
-  const [tab, setTab] = useState<'entities' | 'users' | 'audit'>('entities');
+  const [tab, setTab] = useState<'entities' | 'users' | 'controls' | 'audit'>('entities');
   return (
     <div>
       <div className="page-head"><div><h1>Administration</h1><p>Juridiska enheter, användare och ändringslogg.</p></div></div>
       <div className="tabs">
         <button className={tab === 'entities' ? 'on' : ''} onClick={() => setTab('entities')}>Juridiska enheter</button>
         <button className={tab === 'users' ? 'on' : ''} onClick={() => setTab('users')}>Användare</button>
+        <button className={tab === 'controls' ? 'on' : ''} onClick={() => setTab('controls')}>Kontroller</button>
         <button className={tab === 'audit' ? 'on' : ''} onClick={() => setTab('audit')}>Ändringslogg</button>
       </div>
       {tab === 'entities' && <Entities />}
       {tab === 'users' && <Users />}
+      {tab === 'controls' && <Controls />}
       {tab === 'audit' && <Audit />}
     </div>
   );
@@ -139,6 +141,34 @@ function Audit() {
           { key: 'o', label: 'Objekt', render: (a) => `${a.object}${a.object_id ? ' #' + a.object_id : ''}` },
           { key: 'd', label: 'Detaljer', render: (a) => <span className="muted small" title={a.details ?? ''}>{(a.details ?? '').slice(0, 90)}</span> },
         ]} />
+    </div>
+  );
+}
+
+function Controls() {
+  const { data, setData } = useFetch<{ dual_control: boolean; report_lag_days: number }>('/settings');
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!data) return <Loading />;
+  const save = async (patch: Partial<typeof data>) => {
+    await api.put('/settings', patch);
+    setData({ ...data, ...patch });
+    setMsg('Sparat');
+  };
+  return (
+    <div className="card">
+      <h2>Interna kontroller</h2>
+      <label className="row" style={{ alignItems: 'flex-start', gap: 10, margin: '8px 0 16px' }}>
+        <input type="checkbox" checked={data.dual_control} onChange={(e) => save({ dual_control: e.target.checked })} style={{ marginTop: 3 }} />
+        <span>
+          <strong>Fyra ögon-principen för underlag i Inkorgen</strong>
+          <div className="small muted">En användare granskar och markerar posten, en annan användare attesterar innan den bokförs. Rekommenderas för institutionell förvaltning.</div>
+        </span>
+      </label>
+      <label className="field" style={{ maxWidth: 360 }}>Rapporteringstid för kvartalsrapporter (dagar efter kvartalsslut)
+        <input type="number" min={15} max={180} defaultValue={data.report_lag_days} onBlur={(e) => save({ report_lag_days: Number(e.target.value) })} />
+        <span className="small muted">Används i Rapportbevakning för att avgöra när en NAV-rapport är försenad. ILPA rekommenderar 45–60 dagar, i praktiken är 90 dagar vanligt.</span>
+      </label>
+      {msg && <div className="alert ok mt">{msg}</div>}
     </div>
   );
 }

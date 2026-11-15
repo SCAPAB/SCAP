@@ -6,8 +6,12 @@ import { EntityPicker } from './components/ui';
 import { today } from './format';
 import type { Me } from '../../shared/types';
 import Overview from './pages/Overview';
-import Holdings from './pages/Holdings';
-import PrivateEquity from './pages/PrivateEquity';
+import AssetClass from './pages/AssetClass';
+import Allocation from './pages/Allocation';
+import Performance from './pages/Performance';
+import Liquidity from './pages/Liquidity';
+import Reporting from './pages/Reporting';
+import { ASSET_CLASSES } from '../../shared/types';
 import InstrumentDetail from './pages/InstrumentDetail';
 import Transactions from './pages/Transactions';
 import Instruments from './pages/Instruments';
@@ -79,17 +83,19 @@ function Logo() {
   );
 }
 
-const NAV: { group?: string; to: string; label: string; admin?: boolean }[] = [
-  { to: '/', label: 'Översikt' },
-  { group: 'Innehav', to: '/aktier', label: 'Aktier' },
-  { to: '/fonder', label: 'Fonder' },
-  { to: '/pe', label: 'PE-fonder' },
-  { group: 'Förvaltning', to: '/inkorg', label: 'Inkorg' },
+const NAV: { group?: string; to: string; label: string; admin?: boolean; badge?: 'inbox' | 'attest' }[] = [
+  { group: 'Portfölj', to: '/', label: 'Översikt' },
+  { to: '/allokering', label: 'Allokering mot policy' },
+  { to: '/avkastning', label: 'Avkastning' },
+  { to: '/likviditet', label: 'Likviditet och åtaganden' },
+  ...ASSET_CLASSES.map((a, i) => ({ group: i === 0 ? 'Tillgångsslag' : undefined, to: `/tillgangsslag/${a.path}`, label: a.label })),
+  { group: 'Operativt', to: '/inkorg', label: 'Inkorg', badge: 'inbox' as const },
+  { to: '/rapportbevakning', label: 'Rapportbevakning' },
   { to: '/transaktioner', label: 'Transaktioner' },
-  { to: '/instrument', label: 'Instrument' },
-  { to: '/marknadsdata', label: 'Kurser & värderingar' },
+  { to: '/marknadsdata', label: 'Kurser och valutor' },
   { to: '/import', label: 'Import' },
-  { group: 'Uppföljning', to: '/rapporter', label: 'Rapporter' },
+  { group: 'Register och rapporter', to: '/instrument', label: 'Instrument' },
+  { to: '/rapporter', label: 'Rapporter' },
   { to: '/admin', label: 'Administration', admin: true },
 ];
 
@@ -114,7 +120,7 @@ function Shell() {
               {n.group && <div className="nav-group">{n.group}</div>}
               <NavLink to={n.to} end={n.to !== '/inkorg'}>
                 {n.label}
-                {n.to === '/inkorg' && !!counts?.toReview && <span className="nav-count" title="Dokument att granska">{counts.toReview}</span>}
+                {n.badge === 'inbox' && !!counts?.toReview && <span className="nav-count" title="Dokument att hantera">{counts.toReview}</span>}
               </NavLink>
             </div>
           ))}
@@ -138,9 +144,11 @@ function Shell() {
         <div className="content">
           <Routes>
             <Route path="/" element={<Overview />} />
-            <Route path="/aktier" element={<Holdings type="EQUITY" />} />
-            <Route path="/fonder" element={<Holdings type="FUND" />} />
-            <Route path="/pe" element={<PrivateEquity />} />
+            <Route path="/allokering" element={<Allocation />} />
+            <Route path="/avkastning" element={<Performance />} />
+            <Route path="/likviditet" element={<Liquidity />} />
+            <Route path="/rapportbevakning" element={<Reporting />} />
+            <Route path="/tillgangsslag/:path" element={<AssetClass />} />
             <Route path="/instrument/:id" element={<InstrumentDetail />} />
             <Route path="/transaktioner" element={<Transactions />} />
             <Route path="/instrument" element={<Instruments />} />

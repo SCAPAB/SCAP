@@ -58,7 +58,10 @@ const Item = z.object({
   line_items: z.array(z.object({
     description: z.string(),
     amount: z.number().describe('Positivt belopp'),
-    affects_nav: z.boolean().describe('true om delposten ändrar fondandelens värde (investering, återbetalning av kapital, realiserad vinst); false för förvaltningsavgift, kostnader, carry, källskatt'),
+    category: z.enum(['investment', 'mgmt_fee', 'expenses', 'equalisation', 'return_of_capital', 'recallable', 'gain', 'income', 'withholding']).describe(
+      'Kapitalanrop: investment (investering i portföljbolag), mgmt_fee (förvaltningsavgift), expenses (fondkostnader), equalisation (utjämningsränta/late closing interest – utanför åtagandet). ' +
+      'Utdelning: return_of_capital (återbetalt kapital), recallable (återbetalt kapital som får anropas igen), gain (realiserad vinst), income (ränta/utdelning), withholding (källskatt eller annat avdrag).',
+    ),
     page: z.number().int().nullable(),
   })).describe('Alla atomära delposter för kapitalanrop/utdelning. Inga summarader.'),
   note: z.string().nullable().describe('Kort kommentar på svenska om något är oklart'),
@@ -97,9 +100,11 @@ ${ctx.instruments.map((i) => `- ${i}`).join('\n')}
 - Ett dokument kan innehålla flera poster (t.ex. flera fonder, eller både NAV och innehav). Returnera en post per händelse.
 - Kapitalkontoutdrag (CAS): skapa en NAV-post (värde EFTER carried interest, investerarens andel) och fyll
   commitment_total, paid_in_total, unfunded, distributed_total om de finns – de används för avstämning.
-- Kapitalanrop: amount = totalt anropat belopp som ska betalas; fee = den del som är avgifter/kostnader (påverkar inte NAV).
-  Lista alla delposter i line_items.
-- Utdelning från PE-fond: amount = totalt belopp till investeraren; delposter i line_items.
+- Kapitalanrop: amount = totalt belopp som ska betalas; fee = summan av förvaltningsavgift, kostnader och utjämningsränta.
+  Lista alla delposter i line_items med rätt kategori. Utjämningsränta (equalisation/late closing interest) ligger utanför åtagandet.
+- Utdelning från PE-fond: amount = bruttobelopp (summan av alla delposter utom avdrag); fee = källskatt/avdrag.
+  Ange om någon del är återinkallningsbar (recallable) – den ökar investerarens outnyttjade åtagande.
+- Avsändare (issuer): förvaltarens varumärkesnamn (t.ex. "EQT", inte "EQT Fund Management S.à r.l.").
 - Avräkningsnota fond/aktie: BUY/SELL med antal, kurs, likvidbelopp (amount, exkl. avgift), avgift och affärsdag.
 - Innehavsbesked/depåbesked: en HOLDING-post per instrument (antal per datum) och en PRICE-post om kurs anges.
 - Belopp är alltid positiva. Parenteser betyder negativt i källan – ange beloppet positivt och förklara i note.

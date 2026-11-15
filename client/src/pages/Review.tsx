@@ -11,13 +11,28 @@ import type { Instrument, InstrumentType } from '../../../shared/types';
 
 type Confidence = 'high' | 'medium' | 'low';
 interface PField { value: string | number | null; ai_value: string | number | null; confidence: Confidence | null; page: number | null; quote: string | null; edited: boolean; confirmed: boolean }
-interface LineItem { description: string; amount: number; affects_nav: boolean; page: number | null }
+type LineCategory = 'investment' | 'mgmt_fee' | 'expenses' | 'equalisation' | 'return_of_capital' | 'recallable' | 'gain' | 'income' | 'withholding';
+interface LineItem { description: string; amount: number; category: LineCategory; page: number | null }
+interface MatchInfo { id: number | null; method: string; score: number; label: string | null; confirmed: boolean; candidates: { id: number; name: string; score: number }[]; managerMatch?: boolean | null }
+const LINE_LABELS: Record<LineCategory, { label: string; hint: string }> = {
+  investment: { label: 'Investering', hint: 'Ingår i åtagandet, ökar NAV' },
+  mgmt_fee: { label: 'Förvaltningsavgift', hint: 'Ingår i åtagandet, påverkar inte NAV' },
+  expenses: { label: 'Fondkostnader', hint: 'Ingår i åtagandet, påverkar inte NAV' },
+  equalisation: { label: 'Utjämningsränta', hint: 'Utanför åtagandet – minskar inte outnyttjat' },
+  return_of_capital: { label: 'Återbetalt kapital', hint: 'Minskar NAV' },
+  recallable: { label: 'Återbetalt – återinkallningsbart', hint: 'Minskar NAV, ökar outnyttjat åtagande' },
+  gain: { label: 'Realiserad vinst', hint: 'Minskar NAV' },
+  income: { label: 'Ränta/utdelning', hint: 'Minskar NAV' },
+  withholding: { label: 'Källskatt/avdrag', hint: 'Dras från utbetalningen' },
+};
 interface Check { level: 'error' | 'warning' | 'ok' | 'info'; code: string; message: string }
 export type Kind = 'BUY' | 'SELL' | 'DIVIDEND' | 'FEE' | 'COMMITMENT' | 'CALL' | 'DISTRIBUTION' | 'NAV' | 'PRICE' | 'HOLDING';
 interface Proposal {
   id: number; document_id: number; seq: number; kind: Kind; origin: 'ai' | 'manual'; status: 'pending' | 'approved' | 'rejected';
   entity_id: number | null; instrument_id: number | null; fields: Record<string, PField>; line_items: LineItem[] | null;
-  match: { entity: { method: string; score: number; label: string | null }; instrument: { method: string; score: number; label: string | null } } | null;
+  match: { entity?: MatchInfo; instrument?: MatchInfo } | null;
+  line_categories: LineCategory[] | null;
+  prepared_by: number | null; prepared_at: string | null; prepared_by_name: string | null;
   field_order: { key: string; required: boolean; label: string }[];
   result_ref: string | null; decided_by_name: string | null; decided_at: string | null; comment: string | null;
   checks: Check[]; preview: { label: string; before: string; after: string }[]; canApprove: boolean; blocking: string[]; needsAck: boolean;
@@ -37,12 +52,31 @@ const KIND_TYPES: Record<Kind, InstrumentType[]> = {
   BUY: ['EQUITY', 'FUND'], SELL: ['EQUITY', 'FUND'], DIVIDEND: ['EQUITY', 'FUND'], PRICE: ['EQUITY', 'FUND'], HOLDING: ['EQUITY', 'FUND'],
   FEE: ['EQUITY', 'FUND', 'PE_FUND'],
 };
-const NUMERIC = new Set(['amount', 'fee', 'quantity', 'price', 'fx_rate', 'commitment_total', 'paid_in_total', 'unfunded', 'distributed_total']);
+const NUMERIC = new Set(['amount', 'fee', 'quantity', 'price', 'fx_rate', 'commitment_total', 'paid_in_total', 'unfunded', 'distributed_total', 'outside_commitment', 'recallable']);
 const DATES = new Set(['date', 'settle_date']);
 const MATCH_TEXT: Record<string, string> = {
-  isin: 'matchad på ISIN', name: 'matchad på namn', org_nr: 'matchad på org.nr', label: 'matchad på namn',
-  single_holder: 'enda enheten med innehav', only_entity: 'enda enheten', none: 'ingen träff – välj',
+  isin: 'Säker: ISIN', alias: 'Säker: inlärt namn', org_nr: 'Säker: org.nr', exact: 'Säker: samma namn', manual: 'Valt manuellt',
+  name: 'Trolig träff', single_holder: 'Gissning: enda innehavaren', only_entity: 'Gissning: enda enheten', none: 'Ingen träff',
 };
+
+/** Visar hur enhet/instrument matchades och låter granskaren bekräfta eller välja bland kandidater. */
+function MatchHint({ m, docText, onShow, onConfirm, onPick }: { m?: MatchInfo; docText: string | null; onShow: () => void; onConfirm: () => void; onPick: (id: number) => void }) {
+  const sure = m?.confirmed;
+  return (
+    <span className="hint match-hint">
+      {docText ? <>I dokumentet: <button type="button" className="linkish" onClick={onShow}>{docText}</button></> : 'Framgår inte av dokumentet'}
+      {m && (
+        <span className={'mchip ' + (sure ? 'sure' : m.id ? 'unsure' : 'none')}>
+          {MATCH_TEXT[m.method] ?? m.method}{m.method === 'name' && ` ${Math.round(m.score * 100)} %`}
+          {!sure && m.id && <button type="button" className="btn small confirm" onClick={onConfirm}>Bekräfta</button>}
+        </span>
+      )}
+      {m && !m.id && m.candidates?.length > 0 && (
+        <span className="cands">Förslag: {m.candidates.map((c) => <button key={c.id} type="button" className="btn small" onClick={() => onPick(c.id)} title={`Likhet ${Math.round(c.score * 100)} %`}>{c.name}</button>)}</span>
+      )}
+    </span>
+  );
+}
 
 /** Tolkar svenska och engelska talformat: "1 234 567,89", "1,234,567.89", "12500". */
 export function parseNum(s: string): number | null {
@@ -159,7 +193,7 @@ export default function Review() {
 
           {data.proposals.map((p) => (
             p.id === active && p.status === 'pending' && canEdit
-              ? <ProposalEditor key={p.id} p={p} instruments={instruments ?? []} entities={entities} onChange={replace} onHighlight={setHl}
+              ? <ProposalEditor key={p.id} p={p} issuer={doc.issuer} instruments={instruments ?? []} entities={entities} onChange={replace} onHighlight={setHl}
                   onDone={() => { setHl(null); setActive(null); reload(); bump(); }} />
               : <ProposalSummary key={p.id} p={p} instruments={instruments ?? []} entities={entities} onOpen={() => setActive(p.id)} />
           ))}
@@ -207,15 +241,15 @@ function ProposalSummary({ p, instruments, entities, onOpen }: { p: Proposal; in
           {p.fields.date?.value ?? ''}{amount != null ? ` · ${typeof amount === 'number' ? fmt.num(amount) : amount}` : ''}
           {p.status === 'approved' && <> · Godkänd av {p.decided_by_name} {p.decided_at?.slice(0, 16)}{kindRef === 'transaction' && <> · <Link to="/transaktioner" onClick={(e) => e.stopPropagation()}>Transaktion #{refId}</Link></>}{kindRef === 'reconciled' && ' · avstämd'}</>}
           {p.status === 'rejected' && <> · Avvisad av {p.decided_by_name}{p.comment ? `: ${p.comment}` : ''}</>}
-          {p.status === 'pending' && (p.blocking.length ? ` · ${p.blocking.length} att åtgärda` : ' · redo att godkänna')}
+          {p.status === 'pending' && (p.prepared_by ? ` · granskad av ${p.prepared_by_name}, väntar på attest` : p.blocking.length ? ` · ${p.blocking.length} att åtgärda` : ' · redo att godkänna')}
         </span>
       </span>
     </button>
   );
 }
 
-function ProposalEditor({ p, instruments, entities, onChange, onHighlight, onDone }: {
-  p: Proposal; instruments: Instrument[]; entities: { id: number; name: string }[];
+function ProposalEditor({ p, issuer, instruments, entities, onChange, onHighlight, onDone }: {
+  p: Proposal; issuer: string | null; instruments: Instrument[]; entities: { id: number; name: string }[];
   onChange: (p: Proposal) => void; onHighlight: (h: Highlight | null) => void; onDone: () => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -250,6 +284,22 @@ function ProposalEditor({ p, instruments, entities, onChange, onHighlight, onDon
     onHighlight(f && (f.page || f.quote || f.value != null) ? { page: f.page, value: f.value, quote: f.quote } : null);
   };
 
+  const { me } = useApp();
+  const { data: settings } = useFetch<{ dual_control: boolean }>('/settings');
+  const dual = !!settings?.dual_control;
+  const waitingForOther = dual && !!p.prepared_by && p.prepared_by === me.id;
+  const prepareIt = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.post(`/proposals/${p.id}/prepare`, { acknowledgeWarnings: ack });
+      onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const approve = async () => {
     setBusy(true);
     setErr(null);
@@ -276,7 +326,7 @@ function ProposalEditor({ p, instruments, entities, onChange, onHighlight, onDon
   // Ctrl/Cmd + Enter godkänner
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && p.canApprove && (!p.needsAck || ack)) void approve();
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && p.canApprove && (!p.needsAck || ack) && !waitingForOther) void (dual && !p.prepared_by ? prepareIt() : approve());
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
@@ -309,10 +359,8 @@ function ProposalEditor({ p, instruments, entities, onChange, onHighlight, onDon
             <option value="">Välj …</option>
             {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
-          <span className="hint">
-            {docInvestor ? <>I dokumentet: <button type="button" className="linkish" onClick={() => highlight('investor_label')}>{String(docInvestor)}</button></> : 'Investerare ej angiven i dokumentet'}
-            {p.match && p.origin === 'ai' && <> · {MATCH_TEXT[p.match.entity.method] ?? ''}</>}
-          </span>
+          <MatchHint m={p.origin === 'ai' || p.match?.entity?.method === 'manual' ? p.match?.entity : undefined} docText={docInvestor ? String(docInvestor) : null} onShow={() => highlight('investor_label')}
+            onConfirm={() => save({ confirm_match: ['entity'] })} onPick={(id) => save({ entity_id: id })} />
         </label>
         <label className="field">Instrument
           <span className="row" style={{ flexWrap: 'nowrap' }}>
@@ -322,10 +370,8 @@ function ProposalEditor({ p, instruments, entities, onChange, onHighlight, onDon
             </select>
             <button type="button" className="btn small" onClick={() => setNewIns(true)} title="Skapa nytt instrument från dokumentet">Nytt</button>
           </span>
-          <span className="hint">
-            {docName ? <>I dokumentet: <button type="button" className="linkish" onClick={() => highlight('instrument_name')}>{String(docName)}</button></> : '—'}
-            {p.match && p.origin === 'ai' && <> · {MATCH_TEXT[p.match.instrument.method] ?? ''}</>}
-          </span>
+          <MatchHint m={p.origin === 'ai' || p.match?.instrument?.method === 'manual' ? p.match?.instrument : undefined} docText={docName ? String(docName) : null} onShow={() => highlight('instrument_name')}
+            onConfirm={() => save({ confirm_match: ['instrument'] })} onPick={(id) => save({ instrument_id: id })} />
         </label>
       </div>
 
@@ -364,17 +410,17 @@ function ProposalEditor({ p, instruments, entities, onChange, onHighlight, onDon
         <div className="lines">
           <h3>Delposter</h3>
           <table>
-            <thead><tr><th>Beskrivning</th><th className="num">Belopp</th><th title="Påverkar fondandelens värde (NAV)">Påverkar NAV</th></tr></thead>
+            <thead><tr><th>Beskrivning i dokumentet</th><th className="num">Belopp</th><th>Kategori</th></tr></thead>
             <tbody>
               {lines.map((l, i) => (
                 <tr key={i} onMouseEnter={() => onHighlight({ page: l.page, value: l.amount, quote: l.description })}>
                   <td className="wrap">{l.description}</td>
                   <td className="num">{fmt.dec(l.amount)}</td>
                   <td>
-                    <label className="row small" style={{ gap: 4 }}>
-                      <input type="checkbox" checked={l.affects_nav} onChange={(e) => save({ line_items: lines.map((x, j) => (j === i ? { ...x, affects_nav: e.target.checked } : x)) })} />
-                      {l.affects_nav ? 'Ja' : 'Nej – avgift'}
-                    </label>
+                    <select value={l.category} title={LINE_LABELS[l.category]?.hint} onChange={(e) => save({ line_items: lines.map((x, j) => (j === i ? { ...x, category: e.target.value } : x)) })} aria-label="Kategori">
+                      {(p.line_categories ?? []).map((c) => <option key={c} value={c}>{LINE_LABELS[c].label}</option>)}
+                    </select>
+                    <div className="small muted">{LINE_LABELS[l.category]?.hint}</div>
                   </td>
                 </tr>
               ))}
@@ -415,6 +461,11 @@ function ProposalEditor({ p, instruments, entities, onChange, onHighlight, onDon
       {err && <div className="alert error" style={{ marginTop: 10 }}>{err}</div>}
 
       <div className="approve-bar">
+        {dual && (
+          <div className="small dual-note">
+            Fyra ögon-principen är aktiv. {p.prepared_by ? <>Granskad av <strong>{p.prepared_by_name}</strong> {p.prepared_at?.slice(0, 16)} – {waitingForOther ? 'en annan användare ska attestera.' : 'du kan attestera.'}</> : 'Steg 1: granska och markera posten. Steg 2: en annan användare attesterar.'}
+          </div>
+        )}
         {p.needsAck && (
           <label className="row small ack">
             <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
@@ -425,14 +476,18 @@ function ProposalEditor({ p, instruments, entities, onChange, onHighlight, onDon
         <div className="row">
           {p.origin === 'manual' ? <button className="btn danger" onClick={removeManual}>Ta bort</button> : <button className="btn danger" onClick={rejectIt}>Avvisa</button>}
           <span className="spacer" />
-          <span className="small muted">{!p.canApprove ? `${p.blocking.length} kvar att åtgärda` : p.needsAck && !ack ? 'Bekräfta varningarna' : 'Ctrl+Enter'}</span>
-          <button className="btn primary" disabled={!p.canApprove || (p.needsAck && !ack) || busy} onClick={approve}>{busy ? 'Sparar …' : 'Godkänn och spara'}</button>
+          <span className="small muted">{!p.canApprove ? `${p.blocking.length} kvar att åtgärda` : p.needsAck && !ack ? 'Bekräfta varningarna' : waitingForOther ? 'Väntar på attest av annan användare' : 'Ctrl+Enter'}</span>
+          {dual && !p.prepared_by ? (
+            <button className="btn primary" disabled={!p.canApprove || (p.needsAck && !ack) || busy} onClick={prepareIt}>{busy ? 'Sparar …' : 'Markera som granskad'}</button>
+          ) : (
+            <button className="btn primary" disabled={!p.canApprove || (p.needsAck && !ack) || busy || waitingForOther} onClick={approve}>{busy ? 'Sparar …' : dual ? 'Attestera och spara' : 'Godkänn och spara'}</button>
+          )}
         </div>
       </div>
       {newIns && (
         <InstrumentForm
           defaultType={KIND_TYPES[p.kind][0] === 'PE_FUND' ? 'PE_FUND' : 'FUND'}
-          prefill={{ name: String(docName ?? ''), isin: String(p.fields.isin?.value ?? ''), currency: String(p.fields.currency?.value ?? 'SEK') }}
+          prefill={{ name: String(docName ?? ''), isin: String(p.fields.isin?.value ?? ''), currency: String(p.fields.currency?.value ?? 'SEK'), manager: issuer ?? '' }}
           onSaved={(newId) => void save({ instrument_id: newId })}
           onClose={() => setNewIns(false)}
         />

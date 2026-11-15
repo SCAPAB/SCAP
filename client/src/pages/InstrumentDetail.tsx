@@ -7,7 +7,7 @@ import { PriceChart } from '../components/charts';
 import TxForm from '../components/TxForm';
 import InstrumentForm from '../components/InstrumentForm';
 import { fmt, tone, today } from '../format';
-import { TX_LABELS, TYPE_LABELS, type Instrument, type ListedHolding, type PeHolding, type Transaction } from '../../../shared/types';
+import { ASSET_CLASSES, TX_LABELS, TYPE_LABELS, type Instrument, type ListedHolding, type PeHolding, type Transaction } from '../../../shared/types';
 
 type Tx = Transaction & { entity_name: string; document_id: number | null };
 type Val = { entity_id: number; instrument_id: number; date: string; nav: number; source: string; entity_name: string };
@@ -31,16 +31,16 @@ export default function InstrumentDetail() {
   if (!data) return <Loading />;
   const { instrument: ins, total: h } = data;
   const pe = ins.type === 'PE_FUND';
-  const back = ins.type === 'EQUITY' ? '/aktier' : ins.type === 'FUND' ? '/fonder' : '/pe';
+  const ac = ASSET_CLASSES.find((a) => a.key === ins.asset_class);
 
   return (
     <div>
       <div className="page-head">
         <div>
-          <div className="small"><Link to={back}>← {TYPE_LABELS[ins.type] === 'Aktie' ? 'Aktier' : TYPE_LABELS[ins.type] === 'Fond' ? 'Fonder' : 'PE-fonder'}</Link></div>
+          <div className="small">{ac && <Link to={`/tillgangsslag/${ac.path}`}>← {ac.label}</Link>}</div>
           <h1>{ins.name}</h1>
           <p>
-            {[TYPE_LABELS[ins.type], ins.isin, ins.ticker, ins.currency, ins.sector, ins.manager, ins.vintage && `Vintage ${ins.vintage}`].filter(Boolean).join(' · ')}
+            {[ac?.label, ins.sub_class, TYPE_LABELS[ins.type], ins.isin, ins.ticker, ins.currency, ins.sector, ins.manager, ins.vintage && `Vintage ${ins.vintage}`].filter(Boolean).join(' · ')}
           </p>
         </div>
         {canEdit && (

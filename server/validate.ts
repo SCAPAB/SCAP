@@ -1,7 +1,7 @@
 import { HttpError } from './auth.ts';
 import { get } from './db.ts';
 import { getMarket } from './data.ts';
-import { LISTED_TX_TYPES, PE_TX_TYPES, type Instrument, type InstrumentType, type TxType } from '../shared/types.ts';
+import { ASSET_CLASSES, LISTED_TX_TYPES, PE_TX_TYPES, suggestAssetClass, type AssetClass, type Instrument, type InstrumentType, type TxType } from '../shared/types.ts';
 
 const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
 const num = (v: unknown, field: string, opts: { min?: number; optional?: boolean; def?: number } = {}) => {
@@ -64,7 +64,7 @@ export function validateInstrument(b: Record<string, unknown>) {
   if (!currency || !/^[A-Z]{3}$/.test(currency)) throw new HttpError(400, 'Valuta anges som ISO-kod, t.ex. SEK');
   const isin = str(b.isin, 12)?.toUpperCase() ?? null;
   if (isin && !/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(isin)) throw new HttpError(400, 'Ogiltigt ISIN-format');
-  return {
+  const base = {
     type, name, isin, currency,
     ticker: str(b.ticker, 30),
     country: str(b.country, 2)?.toUpperCase() ?? null,
@@ -75,6 +75,10 @@ export function validateInstrument(b: Record<string, unknown>) {
     strategy: str(b.strategy, 50),
     vintage: num(b.vintage, 'Vintage', { optional: true, min: 1950 }),
   };
+  const suggested = suggestAssetClass(base);
+  const ac = str(b.asset_class, 30) as AssetClass | null;
+  if (ac && !ASSET_CLASSES.some((a) => a.key === ac)) throw new HttpError(400, 'Okänt tillgångsslag');
+  return { ...base, asset_class: ac ?? suggested.asset_class, sub_class: str(b.sub_class, 50) ?? (ac && ac !== suggested.asset_class ? null : suggested.sub_class) };
 }
 
 export { isDate, num, str };

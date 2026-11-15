@@ -3,7 +3,8 @@
  * och ska inte tolkas som verkliga marknadsdata. Kör: npm run seed  (raderar befintligt innehåll!)
  */
 import bcrypt from 'bcryptjs';
-import { db, run, get, tx } from './db.ts';
+import { db, run, get, all, tx } from './db.ts';
+import { suggestAssetClass, type Instrument } from '../shared/types.ts';
 import { addDays } from './calc.ts';
 
 const TODAY = process.env.SEED_TODAY ?? new Date().toISOString().slice(0, 10);
@@ -40,12 +41,20 @@ function walk(start: number, annualDrift: number, annualVol: number) {
 }
 
 tx(() => {
-  for (const t of ['proposals', 'extraction_rules', 'audit_log', 'sessions', 'transactions', 'documents', 'prices', 'pe_valuations', 'fx_rates', 'instruments', 'entities', 'users']) run(`DELETE FROM ${t}`);
+  for (const t of ['aliases', 'policy_targets', 'settings', 'proposals', 'extraction_rules', 'audit_log', 'sessions', 'transactions', 'documents', 'prices', 'pe_valuations', 'fx_rates', 'instruments', 'entities', 'users']) run(`DELETE FROM ${t}`);
 
   // Användare
   const pw = process.env.ADMIN_PASSWORD ?? 'innehav';
   run('INSERT INTO users (email,name,password_hash,role) VALUES (?,?,?,?)', 'admin@innehav.local', 'Administratör', bcrypt.hashSync(pw, 10), 'admin');
+  run('INSERT INTO users (email,name,password_hash,role) VALUES (?,?,?,?)', 'granskare@innehav.local', 'Granskare (attest)', bcrypt.hashSync(pw, 10), 'editor');
   run('INSERT INTO users (email,name,password_hash,role) VALUES (?,?,?,?)', 'lasare@innehav.local', 'Läsbehörighet', bcrypt.hashSync(pw, 10), 'viewer');
+
+  // Policyportfölj (strategisk allokering) – andel av totalt marknadsvärde
+  for (const [k, t, lo, hi] of [
+    ['PUBLIC_EQUITY', 0.525, 0.45, 0.65], ['FIXED_INCOME', 0.05, 0.02, 0.10], ['PRIVATE_EQUITY', 0.30, 0.20, 0.40],
+    ['REAL_ASSETS', 0.05, 0.03, 0.10], ['ABSOLUTE_RETURN', 0.075, 0.05, 0.10],
+  ] as const) run('INSERT INTO policy_targets (asset_class, target, min, max) VALUES (?,?,?,?)', k, t, lo, hi);
+  run("INSERT INTO settings (key, value) VALUES ('dual_control', 'off')");
 
   // Juridiska enheter
   const entities = [
@@ -83,7 +92,8 @@ tx(() => {
     { type: 'FUND', name: 'Demo Global Indexfond', isin: null, ccy: 'SEK', country: 'SE', region: 'Global', sector: 'Global', cat: 'Aktiefond', mgr: 'Demo Fonder AB', px: 185, mu: 0.13, vol: 0.14, dy: 0 },
     { type: 'FUND', name: 'Demo Europa Småbolag', isin: null, ccy: 'EUR', country: 'LU', region: 'Europa', sector: 'Småbolag Europa', cat: 'Aktiefond', mgr: 'Exempel Asset Management S.A.', px: 42, mu: 0.07, vol: 0.2, dy: 0 },
     { type: 'FUND', name: 'Demo Tillväxtmarknader', isin: null, ccy: 'USD', country: 'IE', region: 'Tillväxtmarknader', sector: 'Tillväxtmarknader', cat: 'Aktiefond', mgr: 'Exempel Global Investors plc', px: 23, mu: 0.06, vol: 0.19, dy: 0 },
-    { type: 'FUND', name: 'Demo Företagsobligationer', isin: null, ccy: 'SEK', country: 'SE', region: 'Norden', sector: 'Företagsobligationer', cat: 'Räntefond', mgr: 'Demo Fonder AB', px: 104, mu: 0.045, vol: 0.03, dy: 0 },
+    { type: 'FUND', name: 'Demo Multi-Strategy Fund', isin: null, ccy: 'USD', country: 'KY', region: 'Global', sector: 'Multi-strategi', cat: 'Hedgefond', mgr: 'Exempel Capital Management LP', px: 1180, mu: 0.03, vol: 0.04, dy: 0 },
+    { type: 'FUND', name: 'Demo Företagsobligationer', isin: null, ccy: 'SEK', country: 'SE', region: 'Norden', sector: 'Företagsobligationer', cat: 'Räntefond', mgr: 'Demo Fonder AB', px: 104, mu: 0.035, vol: 0.02, dy: 0 },
   ];
   const ids: number[] = [];
   for (const d of listed) {
@@ -197,6 +207,11 @@ tx(() => {
         if (addDays(q, 60) <= TODAY) run('INSERT INTO pe_valuations (entity_id,instrument_id,date,nav,source) VALUES (?,?,?,?,?)', ent, id, q, round(nav, 0), 'Kvartalsrapport GP');
       });
     }
+  }
+  // Tillgångsslag utifrån instrumentens egenskaper
+  for (const i of all<Instrument>('SELECT * FROM instruments')) {
+    const a = suggestAssetClass(i);
+    run('UPDATE instruments SET asset_class=?, sub_class=? WHERE id=?', a.asset_class, a.sub_class, i.id);
   }
   const n = get<{ n: number }>('SELECT COUNT(*) n FROM transactions')!.n;
   console.log(`Demodata skapad per ${TODAY}: ${ids.length + peDefs.length} instrument, ${n} transaktioner.`);

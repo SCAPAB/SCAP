@@ -5,11 +5,13 @@
  *     och förhandsvisning av effekten – körs på nytt varje gång granskaren ändrar något.
  *  3. approve: skriver posten till databasen först när en människa har godkänt den.
  */
-import { all, get, run, tx, audit } from './db.ts';
+import { all, get, run, tx, audit, setting } from './db.ts';
+import { matchInstrument, matchEntity, learnAlias, labelMatchesEntity, type Match } from './matching.ts';
+export { nameScore } from './matching.ts';
 import { HttpError } from './auth.ts';
 import { getMarket, bumpVersion } from './data.ts';
 import { listedHolding, peHolding, addDays } from './calc.ts';
-import type { ExtractionT, ExtractedItem } from './ai.ts';
+import type { ExtractionT } from './ai.ts';
 import type { Entity, Instrument, InstrumentType, Transaction } from '../shared/types.ts';
 
 export type Kind = 'BUY' | 'SELL' | 'DIVIDEND' | 'FEE' | 'COMMITMENT' | 'CALL' | 'DISTRIBUTION' | 'NAV' | 'PRICE' | 'HOLDING';
@@ -24,20 +26,64 @@ export interface PField {
   edited: boolean;
   confirmed: boolean; // granskaren har bekräftat ett osäkert AI-värde
 }
-export interface LineItem { description: string; amount: number; affects_nav: boolean; page: number | null }
+/**
+ * Delposter i kapitalanrop och utdelningar. Kategorin styr bokföringen:
+ *  investment   – investering, ingår i åtagandet och ökar NAV
+ *  mgmt_fee     – förvaltningsavgift, ingår i åtagandet, påverkar inte NAV
+ *  expenses     – fondkostnader, ingår i åtagandet, påverkar inte NAV
+ *  equalisation – utjämningsränta m.m. UTANFÖR åtagandet (minskar inte outnyttjat)
+ *  return_of_capital – återbetalt kapital
+ *  recallable   – återbetalt kapital som får anropas igen (ökar outnyttjat åtagande)
+ *  gain / income – realiserad vinst / ränta och utdelning
+ *  withholding  – källskatt eller annat avdrag (dras från utbetalningen)
+ */
+export type LineCategory = 'investment' | 'mgmt_fee' | 'expenses' | 'equalisation' | 'return_of_capital' | 'recallable' | 'gain' | 'income' | 'withholding';
+export const LINE_CATEGORIES: Record<'CALL' | 'DISTRIBUTION', LineCategory[]> = {
+  CALL: ['investment', 'mgmt_fee', 'expenses', 'equalisation'],
+  DISTRIBUTION: ['return_of_capital', 'recallable', 'gain', 'income', 'withholding'],
+};
+export interface LineItem { description: string; amount: number; category: LineCategory; page: number | null }
+
+/** Summerar delposter till de belopp som bokförs. */
+export function splitLines(lines: LineItem[]) {
+  const sum = (c: LineCategory[]) => lines.filter((l) => c.includes(l.category)).reduce((a, l) => a + l.amount, 0);
+  return {
+    total: lines.reduce((a, l) => a + l.amount, 0),
+    investment: sum(['investment']),
+    fees: sum(['mgmt_fee', 'expenses', 'equalisation']),
+    outside: sum(['equalisation']),
+    gross: sum(['return_of_capital', 'recallable', 'gain', 'income']),
+    withholding: sum(['withholding']),
+    recallable: sum(['recallable']),
+  };
+}
+
+/** Bakåtkompatibel tolkning av äldre delposter (affects_nav) och AI-svar. */
+export function normalizeLines(kind: Kind, raw: unknown[] | null): LineItem[] | null {
+  if (!raw || !raw.length) return null;
+  return raw.map((r) => {
+    const l = r as { description?: string; amount?: number; category?: LineCategory; affects_nav?: boolean; page?: number | null };
+    let category = l.category;
+    if (!category || !(LINE_CATEGORIES[kind as 'CALL'] ?? []).includes(category)) {
+      category = kind === 'CALL' ? (l.affects_nav === false ? 'mgmt_fee' : 'investment') : 'return_of_capital';
+    }
+    return { description: String(l.description ?? ''), amount: Math.abs(Number(l.amount) || 0), category, page: l.page ?? null };
+  });
+}
 
 export interface ProposalRow {
   id: number; document_id: number; seq: number; kind: Kind; origin: 'ai' | 'manual'; status: 'pending' | 'approved' | 'rejected';
   entity_id: number | null; instrument_id: number | null; match: string | null; fields: string; line_items: string | null;
   result_ref: string | null; decided_by: number | null; decided_at: string | null; comment: string | null;
+  prepared_by: number | null; prepared_at: string | null;
 }
 
 export interface Check { level: 'error' | 'warning' | 'ok' | 'info'; code: string; message: string }
 
 /** Vilka fält som hör till varje typ av post. Stjärnmärkta (*) är obligatoriska. */
 export const KIND_FIELDS: Record<Kind, string[]> = {
-  CALL: ['date*', 'settle_date', 'amount*', 'fee', 'fx_rate', 'currency', 'note'],
-  DISTRIBUTION: ['date*', 'settle_date', 'amount*', 'fee', 'fx_rate', 'currency', 'note'],
+  CALL: ['date*', 'settle_date', 'amount*', 'fee', 'outside_commitment', 'fx_rate', 'currency', 'note'],
+  DISTRIBUTION: ['date*', 'settle_date', 'amount*', 'fee', 'recallable', 'fx_rate', 'currency', 'note'],
   COMMITMENT: ['date*', 'amount*', 'currency', 'note'],
   NAV: ['date*', 'amount*', 'currency', 'commitment_total', 'paid_in_total', 'unfunded', 'distributed_total', 'note'],
   BUY: ['date*', 'settle_date', 'quantity*', 'price*', 'amount', 'fee', 'fx_rate', 'currency', 'note'],
@@ -47,7 +93,7 @@ export const KIND_FIELDS: Record<Kind, string[]> = {
   PRICE: ['date*', 'price*', 'currency'],
   HOLDING: ['date*', 'quantity*', 'price', 'amount', 'currency'],
 };
-const NUMERIC = new Set(['amount', 'fee', 'quantity', 'price', 'fx_rate', 'commitment_total', 'paid_in_total', 'unfunded', 'distributed_total']);
+const NUMERIC = new Set(['amount', 'fee', 'quantity', 'price', 'fx_rate', 'commitment_total', 'paid_in_total', 'unfunded', 'distributed_total', 'outside_commitment', 'recallable']);
 export const KIND_TYPES: Record<Kind, InstrumentType[]> = {
   CALL: ['PE_FUND'], DISTRIBUTION: ['PE_FUND'], COMMITMENT: ['PE_FUND'], NAV: ['PE_FUND'],
   BUY: ['EQUITY', 'FUND'], SELL: ['EQUITY', 'FUND'], DIVIDEND: ['EQUITY', 'FUND'], PRICE: ['EQUITY', 'FUND'], HOLDING: ['EQUITY', 'FUND'],
@@ -56,73 +102,6 @@ export const KIND_TYPES: Record<Kind, InstrumentType[]> = {
 
 const fieldNames = (k: Kind) => KIND_FIELDS[k].map((f) => f.replace('*', ''));
 const required = (k: Kind) => KIND_FIELDS[k].filter((f) => f.endsWith('*')).map((f) => f.slice(0, -1));
-
-// ---------------------------------------------------------------------------
-// Matchning av namn (enhet/instrument) – tålig mot juridiska suffix, versaler och stavning
-// ---------------------------------------------------------------------------
-
-const NOISE = new Set(['fund', 'feeder', 'parallel', 'main', 'master', 'limited', 'partnership', 'lp', 'scsp', 'sca', 'sarl', 'ltd', 'inc', 'ab', 'plc', 'llc', 'scs', 'sicav', 'raif', 'the', 'of', 'and', 'publ', 'class', 'klass', 'andelsklass', 'fond', 'aktiefond', 'a', 'b', 'c', 'acc', 'sek', 'eur', 'usd', 'nok', 'dkk']);
-const tokens = (s: string) =>
-  s.toLowerCase().replace(/\([^)]*\)/g, ' ').normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9]+/).filter((t) => t && !NOISE.has(t));
-function dice(a: string, b: string) {
-  if (a === b) return 1;
-  if (a.length < 2 || b.length < 2) return 0;
-  const bg = (s: string) => { const m = new Map<string, number>(); for (let i = 0; i < s.length - 1; i++) m.set(s.slice(i, i + 2), (m.get(s.slice(i, i + 2)) ?? 0) + 1); return m; };
-  const A = bg(a); const B = bg(b); let o = 0;
-  for (const [k, n] of A) o += Math.min(n, B.get(k) ?? 0);
-  return (2 * o) / (a.length + b.length - 2);
-}
-const ROMAN = /^(x{0,3})(ix|iv|v?i{0,3})$/;
-const fundNo = (t: string[]) => [...t].reverse().find((x) => /^\d{1,2}$/.test(x) || (x.length && ROMAN.test(x))) ?? null;
-export function nameScore(a: string, b: string): number {
-  const A = tokens(a); const B = tokens(b);
-  if (!A.length || !B.length) return 0;
-  const na = fundNo(A); const nb = fundNo(B);
-  if (na && nb && na !== nb) return 0; // "Fund IV" ≠ "Fund V"
-  let shared = 0;
-  for (const t of new Set(A)) {
-    if (B.includes(t)) shared++;
-    else if (B.some((u) => dice(t, u) > 0.8)) shared += 0.8;
-  }
-  return (shared / Math.max(new Set(A).size, new Set(B).size)) * 0.7 + dice(A.join(' '), B.join(' ')) * 0.3;
-}
-
-function matchInstrument(item: ExtractedItem, kind: Kind, instruments: Instrument[]) {
-  const allowed = instruments.filter((i) => KIND_TYPES[kind].includes(i.type));
-  const isin = (item.isin.value ?? '').replace(/\s/g, '').toUpperCase();
-  if (isin) {
-    const hit = allowed.find((i) => i.isin === isin);
-    if (hit) return { id: hit.id, method: 'isin', score: 1, label: isin };
-  }
-  const name = item.instrument_name.value ?? '';
-  let best: { id: number; score: number } | null = null;
-  for (const i of allowed) {
-    const s = Math.max(nameScore(name, i.name), i.ticker ? nameScore(name, i.ticker) : 0);
-    if (!best || s > best.score) best = { id: i.id, score: s };
-  }
-  if (best && best.score >= 0.6) return { id: best.id, method: 'name', score: best.score, label: name };
-  return { id: null, method: 'none', score: best?.score ?? 0, label: name || isin };
-}
-
-function matchEntity(label: string | null, instrumentId: number | null, entities: Entity[]) {
-  if (label) {
-    const norm = label.replace(/\D/g, '');
-    const byOrg = entities.find((e) => e.org_nr && norm.includes(e.org_nr.replace(/\D/g, '')));
-    if (byOrg) return { id: byOrg.id, method: 'org_nr', score: 1, label };
-    let best: { id: number; score: number } | null = null;
-    for (const e of entities) {
-      const s = nameScore(label, e.name);
-      if (!best || s > best.score) best = { id: e.id, score: s };
-    }
-    if (best && best.score >= 0.6) return { id: best.id, method: 'label', score: best.score, label };
-  }
-  if (instrumentId) {
-    const holders = all<{ entity_id: number }>('SELECT DISTINCT entity_id FROM transactions WHERE instrument_id=?', instrumentId);
-    if (holders.length === 1) return { id: holders[0].entity_id, method: 'single_holder', score: 0.5, label };
-  }
-  if (entities.length === 1) return { id: entities[0].id, method: 'only_entity', score: 0.5, label };
-  return { id: null, method: 'none', score: 0, label };
-}
 
 // ---------------------------------------------------------------------------
 // 1. Skapa förslag
@@ -137,6 +116,7 @@ export const emptyField = (value: PField['value'] = null): PField => ({ value, a
 
 export function buildProposals(documentId: number, ex: ExtractionT) {
   const entities = all<Entity>('SELECT id, name, org_nr FROM entities');
+  const issuer = ex.issuer.value;
   const instruments = all<Instrument>('SELECT * FROM instruments');
   run("DELETE FROM proposals WHERE document_id=? AND status='pending' AND origin='ai'", documentId);
   const start = (get<{ n: number }>('SELECT COALESCE(MAX(seq),0) n FROM proposals WHERE document_id=?', documentId)?.n ?? 0) + 1;
@@ -145,14 +125,18 @@ export function buildProposals(documentId: number, ex: ExtractionT) {
     const fields: Record<string, PField> = {};
     for (const f of fieldNames(kind)) {
       const src = (item as unknown as Record<string, { value: unknown; confidence: Confidence; page: number | null; quote: string | null }>)[f];
-      fields[f] = f === 'note' ? { ...emptyField(item.note), ai_value: item.note } : f === 'fx_rate' ? emptyField() : toField(src, NUMERIC.has(f));
+      fields[f] = f === 'note' ? { ...emptyField(item.note), ai_value: item.note }
+        : f === 'fx_rate' || f === 'outside_commitment' || f === 'recallable' ? emptyField()
+          : toField(src, NUMERIC.has(f));
     }
     fields.instrument_name = toField(item.instrument_name, false);
     fields.isin = toField(item.isin, false);
     fields.investor_label = toField(item.investor_label.value ? item.investor_label : ex.investor_label, false);
-    const im = matchInstrument(item, kind, instruments);
-    const em = matchEntity(str(fields.investor_label), im.id, entities);
-    const lines = item.line_items.length ? item.line_items.map((l) => ({ ...l, amount: Math.abs(l.amount) })) : null;
+    const im = matchInstrument({ name: item.instrument_name.value, isin: item.isin.value, issuer }, instruments.filter((x) => KIND_TYPES[kind].includes(x.type)));
+    const em = matchEntity(str(fields.investor_label), issuer, im.id, entities);
+    const lines = normalizeLines(kind, item.line_items);
+    if (lines && kind === 'CALL') { const sp = splitLines(lines); if (sp.outside) fields.outside_commitment = { ...emptyField(sp.outside), ai_value: sp.outside, confidence: 'medium' }; }
+    if (lines && kind === 'DISTRIBUTION') { const sp = splitLines(lines); if (sp.recallable) fields.recallable = { ...emptyField(sp.recallable), ai_value: sp.recallable, confidence: 'medium' }; }
     run(
       'INSERT INTO proposals (document_id, seq, kind, origin, entity_id, instrument_id, match, fields, line_items) VALUES (?,?,?,?,?,?,?,?,?)',
       documentId, start + i, kind, 'ai', em.id, im.id, JSON.stringify({ entity: em, instrument: im }), JSON.stringify(fields), lines ? JSON.stringify(lines) : null,
@@ -213,7 +197,8 @@ export interface Evaluated {
 
 export function evaluate(p: ProposalRow, docId: number): Evaluated {
   const fields = JSON.parse(p.fields) as Record<string, PField>;
-  const lines = p.line_items ? (JSON.parse(p.line_items) as LineItem[]) : null;
+  const lines = normalizeLines(p.kind, p.line_items ? JSON.parse(p.line_items) : null);
+  const match = (p.match ? JSON.parse(p.match) : {}) as { entity?: Match; instrument?: Match };
   const checks: Check[] = [];
   const preview: Evaluated['preview'] = [];
   const kind = p.kind;
@@ -224,6 +209,27 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
   if (!ent) checks.push({ level: 'error', code: 'entity', message: 'Välj juridisk enhet' });
   if (!ins) checks.push({ level: 'error', code: 'instrument', message: 'Välj instrument (eller skapa ett nytt)' });
   if (ins && !KIND_TYPES[kind].includes(ins.type)) checks.push({ level: 'error', code: 'kind', message: `Posttypen passar inte för ${ins.name}` });
+  // Matchningar som inte är säkra måste bekräftas av granskaren
+  const mi = match.instrument;
+  if (ins && mi && mi.id === ins.id && !mi.confirmed) {
+    checks.push({ level: 'error', code: 'confirm_instrument', message: `Bekräfta instrument: "${mi.label}" i dokumentet → ${ins.name} (likhet ${Math.round(mi.score * 100)} %)` });
+  } else if (ins && mi && (mi.method === 'isin' || mi.method === 'alias')) {
+    checks.push({ level: 'ok', code: 'match_instrument', message: mi.method === 'isin' ? `Instrumentet matchat på ISIN` : `Instrumentet känt från tidigare godkänt underlag ("${mi.label}")` });
+  }
+  if (ins && mi?.managerMatch === false) {
+    const doc = get<{ issuer: string | null }>('SELECT issuer FROM documents WHERE id=?', docId);
+    checks.push({ level: 'warning', code: 'manager', message: `Avsändaren "${doc?.issuer}" är inte registrerad förvaltare för ${ins.name} (${ins.manager})` });
+  }
+  const me = match.entity;
+  if (ent && me && me.id === ent.id && !me.confirmed) {
+    checks.push({ level: 'error', code: 'confirm_entity', message: me.method === 'single_holder' || me.method === 'only_entity'
+      ? `Bekräfta enhet: ${ent.name} är vald för att den är enda innehavaren – investeraren framgår inte säkert av dokumentet`
+      : `Bekräfta enhet: "${me.label}" i dokumentet → ${ent.name} (likhet ${Math.round(me.score * 100)} %)` });
+  }
+  // PE: enheten ska ha ett åtagande i fonden
+  if (ins && ent && ins.type === 'PE_FUND' && kind !== 'COMMITMENT' && !get("SELECT 1 FROM transactions WHERE entity_id=? AND instrument_id=? AND type='COMMITMENT'", ent.id, ins.id)) {
+    checks.push({ level: 'warning', code: 'no_commitment', message: `${ent.name} har inget registrerat åtagande i ${ins.name} – kontrollera enhet och fond, eller registrera åtagandet först` });
+  }
   for (const f of required(kind)) {
     const v = fields[f]?.value;
     if (v == null || v === '') checks.push({ level: 'error', code: `missing_${f}`, message: `${LABELS[f] ?? f} saknas` });
@@ -246,8 +252,7 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
   // Investerare enligt dokumentet vs vald enhet
   const inv = str(fields.investor_label);
   if (ent && inv) {
-    const orgHit = !!ent.org_nr && inv.replace(/\D/g, '').includes(ent.org_nr.replace(/\D/g, ''));
-    if (orgHit || nameScore(inv, ent.name) >= 0.6) checks.push({ level: 'ok', code: 'investor', message: `Investeraren i dokumentet ("${inv}") matchar ${ent.name}` });
+    if (labelMatchesEntity(inv, ent)) checks.push({ level: 'ok', code: 'investor', message: `Investeraren i dokumentet ("${inv}") matchar ${ent.name}` });
     else checks.push({ level: 'warning', code: 'investor', message: `Dokumentet gäller "${inv}" – kontrollera att ${ent.name} är rätt enhet` });
   }
 
@@ -263,15 +268,17 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
     else if (!num(fields.fx_rate)) checks.push({ level: 'info', code: 'fx', message: `Valutakurs ${fmt(fx, 4)} SEK/${ins.currency} hämtas från registrerade kurser` });
   }
 
-  // Delposter ska summera till totalen
+  // Delposter ska summera till totalen och avgiftsdelen stämma
   if (lines && lines.length && amount != null && (kind === 'CALL' || kind === 'DISTRIBUTION')) {
-    const sum = lines.reduce((a, l) => a + l.amount, 0);
-    if (Math.abs(sum - amount) > Math.max(1, amount * 0.0001)) checks.push({ level: 'warning', code: 'lines_sum', message: `Delposterna summerar till ${fmt(sum, 2)} men totalen är ${fmt(amount, 2)}` });
-    else checks.push({ level: 'ok', code: 'lines_sum', message: 'Delposterna summerar till totalbeloppet' });
-    if (kind === 'CALL') {
-      const nonNav = lines.filter((l) => !l.affects_nav).reduce((a, l) => a + l.amount, 0);
-      if (Math.abs(nonNav - fee) > Math.max(1, amount * 0.0001)) checks.push({ level: 'warning', code: 'fee_split', message: `Avgiftsdelen enligt delposterna (${fmt(nonNav, 2)}) skiljer sig från avgiftsfältet (${fmt(fee, 2)})` });
-    }
+    const sp = splitLines(lines);
+    const tol = Math.max(1, amount * 0.0001);
+    const lineTotal = kind === 'CALL' ? sp.total : sp.gross;
+    if (Math.abs(lineTotal - amount) > tol) checks.push({ level: 'warning', code: 'lines_sum', message: `Delposterna summerar till ${fmt(lineTotal, 2)} men beloppet är ${fmt(amount, 2)}` });
+    else checks.push({ level: 'ok', code: 'lines_sum', message: 'Delposterna summerar till beloppet' });
+    const feeLines = kind === 'CALL' ? sp.fees : sp.withholding;
+    if (Math.abs(feeLines - fee) > tol) checks.push({ level: 'warning', code: 'fee_split', message: `${kind === 'CALL' ? 'Avgifter' : 'Avdrag'} enligt delposterna (${fmt(feeLines, 2)}) skiljer sig från fältet (${fmt(fee, 2)})` });
+    if (kind === 'CALL' && sp.outside && Math.abs(sp.outside - (num(fields.outside_commitment) ?? 0)) > tol) checks.push({ level: 'warning', code: 'outside_split', message: `Utjämningsränta enligt delposterna (${fmt(sp.outside, 2)}) skiljer sig från fältet "utanför åtagandet"` });
+    if (kind === 'DISTRIBUTION' && sp.recallable && Math.abs(sp.recallable - (num(fields.recallable) ?? 0)) > tol) checks.push({ level: 'warning', code: 'recallable_split', message: `Återinkallningsbart enligt delposterna (${fmt(sp.recallable, 2)}) skiljer sig från fältet` });
   }
 
   // Köp/sälj: antal × kurs ska stämma med likvidbelopp
@@ -347,7 +354,7 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
         const ccyS = ` ${ins.currency}`;
         if (kind === 'COMMITMENT') preview.push({ label: 'Åtagande', before: fmt(before.commitment) + ccyS, after: fmt(after.commitment) + ccyS });
         if (kind === 'CALL' || kind === 'FEE') preview.push({ label: 'Inbetalt', before: fmt(before.paidIn) + ccyS, after: fmt(after.paidIn) + ccyS });
-        if (kind === 'CALL' || kind === 'COMMITMENT') preview.push({ label: 'Outnyttjat åtagande', before: fmt(before.uncalled) + ccyS, after: fmt(after.uncalled) + ccyS });
+        if (kind === 'CALL' || kind === 'COMMITMENT' || (kind === 'DISTRIBUTION' && after.uncalled !== before.uncalled)) preview.push({ label: 'Outnyttjat åtagande', before: fmt(before.uncalled) + ccyS, after: fmt(after.uncalled) + ccyS });
         if (kind === 'DISTRIBUTION') preview.push({ label: 'Utdelat', before: fmt(before.distributed) + ccyS, after: fmt(after.distributed) + ccyS });
         preview.push({ label: kind === 'NAV' ? 'NAV' : 'NAV (framräknat)', before: fmt(before.nav) + ccyS, after: fmt(after.nav) + ccyS });
         if (kind !== 'NAV' && kind !== 'COMMITMENT' && 'dpi' in after) preview.push({ label: 'DPI', before: fmt(before.dpi, 2) + 'x', after: fmt(after.dpi, 2) + 'x' });
@@ -397,7 +404,10 @@ function hypothetical(p: ProposalRow, f: Record<string, PField>, ins: Instrument
   if (!isFinite(fx)) fx = 1;
   // Kapitalanrop: amount i transaktionen = investeringsdelen, fee = avgiftsdelen
   const isCall = p.kind === 'CALL';
+  const outside = isCall ? num(f.outside_commitment) ?? 0 : 0;
+  const recallable = p.kind === 'DISTRIBUTION' ? num(f.recallable) ?? 0 : 0;
   return {
+    outside_commitment: outside, recallable,
     id: 1e12, entity_id: entityId, instrument_id: ins.id, type: p.kind as Transaction['type'], trade_date: date, settle_date: str(f.settle_date),
     quantity: p.kind === 'BUY' || p.kind === 'SELL' ? qty : 0, price, amount: isCall ? amt - fee : amt, fee: p.kind === 'COMMITMENT' ? 0 : fee, fx_rate: fx, note: null,
   };
@@ -408,6 +418,7 @@ export const LABELS: Record<string, string> = {
   quantity: 'Antal', price: 'Kurs', commitment_total: 'Åtagande enligt dokument', paid_in_total: 'Inbetalt enligt dokument',
   unfunded: 'Outnyttjat enligt dokument', distributed_total: 'Utdelat enligt dokument', instrument_name: 'Instrument i dokumentet', isin: 'ISIN',
   investor_label: 'Investerare i dokumentet',
+  outside_commitment: 'Varav utanför åtagandet', recallable: 'Varav återinkallningsbart',
 };
 
 // ---------------------------------------------------------------------------
@@ -421,8 +432,12 @@ export function approve(id: number, userId: number | null, opts: { acknowledgeWa
   const ev = evaluate(p, p.document_id);
   if (ev.blocking.length) throw new HttpError(400, ev.blocking.join(' · '));
   if (ev.needsAck && !opts.acknowledgeWarnings) throw new HttpError(400, 'Bekräfta att du har kontrollerat varningarna');
+  if (dualControl()) {
+    if (!p.prepared_by) throw new HttpError(400, 'Fyra ögon-principen: posten måste först markeras som granskad');
+    if (p.prepared_by === userId) throw new HttpError(403, 'Fyra ögon-principen: en annan användare än den som granskade måste attestera');
+  }
   const f = JSON.parse(p.fields) as Record<string, PField>;
-  const lines = p.line_items ? (JSON.parse(p.line_items) as LineItem[]) : null;
+  const lines = normalizeLines(p.kind, p.line_items ? JSON.parse(p.line_items) : null);
   const ins = get<Instrument>('SELECT * FROM instruments WHERE id=?', p.instrument_id)!;
   const date = str(f.date)!;
   let ref = '';
@@ -447,25 +462,45 @@ export function approve(id: number, userId: number | null, opts: { acknowledgeWa
       default: {
         const t = hypothetical(p, f, ins, p.entity_id!, date)!;
         const r = run(
-          'INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by,document_id,details) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          'INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by,document_id,details,outside_commitment,recallable) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
           t.entity_id, t.instrument_id, t.type, t.trade_date, t.settle_date, t.quantity, t.price, t.amount, t.fee, t.fx_rate,
-          str(f.note), userId, p.document_id, lines ? JSON.stringify(lines) : null,
+          str(f.note), userId, p.document_id, lines ? JSON.stringify(lines) : null, t.outside_commitment ?? 0, t.recallable ?? 0,
         );
         ref = `transaction:${r.lastInsertRowid}`;
       }
     }
     run("UPDATE proposals SET status='approved', result_ref=?, decided_by=?, decided_at=datetime('now'), comment=? WHERE id=?", ref, userId, opts.comment ?? null, id);
+    // Lär in hur avsändaren benämner instrument och enhet, så att nästa dokument matchas säkert
+    const issuer = get<{ issuer: string | null }>('SELECT issuer FROM documents WHERE id=?', p.document_id)?.issuer ?? null;
+    const learned: string[] = [];
+    if (str(f.instrument_name) && learnAlias('instrument', str(f.instrument_name), issuer, p.instrument_id!, userId)) learned.push(`instrument "${str(f.instrument_name)}"`);
+    if (str(f.investor_label) && p.entity_id && learnAlias('entity', str(f.investor_label), issuer, p.entity_id, userId)) learned.push(`investerare "${str(f.investor_label)}"`);
     // Spårbarhet: vad AI föreslog och vad som ändrades
     const changes = Object.fromEntries(Object.entries(f).filter(([, v]) => v.edited).map(([k, v]) => [k, { ai: v.ai_value, final: v.value }]));
     audit(userId, 'approve', 'proposal', id, {
       document_id: p.document_id, kind: p.kind, result: ref, origin: p.origin, changed_from_ai: changes,
       confirmed_low_confidence: Object.entries(f).filter(([, v]) => v.confirmed).map(([k]) => k),
       warnings_acknowledged: ev.checks.filter((c) => c.level === 'warning').map((c) => c.message),
+      prepared_by: p.prepared_by, learned_aliases: learned,
     });
     refreshDocumentStatus(p.document_id);
   });
   bumpVersion();
   return ref;
+}
+
+export const dualControl = () => setting('dual_control', 'off') === 'on';
+
+/** Fyra ögon-principen, steg 1: granskaren markerar posten som kontrollerad. */
+export function prepare(id: number, userId: number | null, opts: { acknowledgeWarnings: boolean }) {
+  const p = get<ProposalRow>('SELECT * FROM proposals WHERE id=?', id);
+  if (!p) throw new HttpError(404, 'Förslaget finns inte');
+  if (p.status !== 'pending') throw new HttpError(409, 'Förslaget är redan hanterat');
+  const ev = evaluate(p, p.document_id);
+  if (ev.blocking.length) throw new HttpError(400, ev.blocking.join(' · '));
+  if (ev.needsAck && !opts.acknowledgeWarnings) throw new HttpError(400, 'Bekräfta att du har kontrollerat varningarna');
+  run("UPDATE proposals SET prepared_by=?, prepared_at=datetime('now') WHERE id=?", userId, id);
+  audit(userId, 'prepare', 'proposal', id, { document_id: p.document_id, warnings_acknowledged: ev.checks.filter((c) => c.level === 'warning').map((c) => c.message) });
 }
 
 export function reject(id: number, userId: number | null, comment: string | null) {

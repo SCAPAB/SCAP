@@ -133,8 +133,8 @@ export function importCsv(kind: string, csv: string, opts: { dryRun: boolean; us
               country: r.land, region: r.region, sector: r.bransch, fund_category: r.kategori, manager: r['förvaltare'], strategy: r.strategi, vintage: r.vintage,
             });
             if (v.isin && instruments.some((i) => i.isin === v.isin)) throw new Error(`ISIN ${v.isin} finns redan`);
-            const res = run('INSERT INTO instruments (type,name,isin,ticker,currency,country,region,sector,fund_category,manager,strategy,vintage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-              v.type, v.name, v.isin, v.ticker, v.currency, v.country, v.region, v.sector, v.fund_category, v.manager, v.strategy, v.vintage);
+            const res = run('INSERT INTO instruments (type,name,isin,ticker,currency,country,region,sector,fund_category,manager,strategy,vintage,asset_class,sub_class) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+              v.type, v.name, v.isin, v.ticker, v.currency, v.country, v.region, v.sector, v.fund_category, v.manager, v.strategy, v.vintage, v.asset_class, v.sub_class);
             instruments.push({ ...v, id: Number(res.lastInsertRowid) } as Instrument);
             preview = { rad: line, typ: v.type, namn: v.name, isin: v.isin, valuta: v.currency };
             break;

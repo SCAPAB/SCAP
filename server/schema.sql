@@ -154,3 +154,29 @@ CREATE TABLE IF NOT EXISTS extraction_rules (
   updated_by   INTEGER REFERENCES users(id),
   updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Strategisk allokering (policyportfölj) per tillgångsslag
+CREATE TABLE IF NOT EXISTS policy_targets (
+  asset_class TEXT PRIMARY KEY,
+  target      REAL NOT NULL,   -- andel 0–1
+  min         REAL NOT NULL,
+  max         REAL NOT NULL
+);
+
+-- Inlärda namn: hur GP/fondbolag/banker benämner våra instrument och enheter i sina dokument
+CREATE TABLE IF NOT EXISTS aliases (
+  id         INTEGER PRIMARY KEY,
+  kind       TEXT NOT NULL CHECK (kind IN ('instrument','entity')),
+  alias      TEXT NOT NULL,          -- normaliserad text
+  raw        TEXT NOT NULL,          -- som det stod i dokumentet
+  issuer     TEXT,                   -- avsändare (GP/bank) där aliaset gäller, NULL = alla
+  target_id  INTEGER NOT NULL,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (kind, alias, issuer)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);

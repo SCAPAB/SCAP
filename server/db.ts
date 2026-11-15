@@ -21,6 +21,14 @@ function migrate(d: DatabaseSync) {
   const tx = cols('transactions');
   if (!tx.includes('document_id')) d.exec('ALTER TABLE transactions ADD COLUMN document_id INTEGER REFERENCES documents(id)');
   if (!tx.includes('details')) d.exec('ALTER TABLE transactions ADD COLUMN details TEXT');
+  if (!tx.includes('outside_commitment')) d.exec('ALTER TABLE transactions ADD COLUMN outside_commitment REAL NOT NULL DEFAULT 0');
+  if (!tx.includes('recallable')) d.exec('ALTER TABLE transactions ADD COLUMN recallable REAL NOT NULL DEFAULT 0');
+  const ins = cols('instruments');
+  if (!ins.includes('asset_class')) d.exec("ALTER TABLE instruments ADD COLUMN asset_class TEXT NOT NULL DEFAULT 'PUBLIC_EQUITY'");
+  if (!ins.includes('sub_class')) d.exec('ALTER TABLE instruments ADD COLUMN sub_class TEXT');
+  const pr = cols('proposals');
+  if (!pr.includes('prepared_by')) d.exec('ALTER TABLE proposals ADD COLUMN prepared_by INTEGER REFERENCES users(id)');
+  if (!pr.includes('prepared_at')) d.exec('ALTER TABLE proposals ADD COLUMN prepared_at TEXT');
   const v = cols('pe_valuations');
   if (!v.includes('document_id')) d.exec('ALTER TABLE pe_valuations ADD COLUMN document_id INTEGER REFERENCES documents(id)');
 }
@@ -49,4 +57,8 @@ export function audit(userId: number | null, action: string, object: string, obj
     'INSERT INTO audit_log (user_id, action, object, object_id, details) VALUES (?,?,?,?,?)',
     userId, action, object, objectId == null ? null : String(objectId), details == null ? null : JSON.stringify(details),
   );
+}
+
+export function setting(key: string, def: string): string {
+  return get<{ value: string }>('SELECT value FROM settings WHERE key=?', key)?.value ?? def;
 }

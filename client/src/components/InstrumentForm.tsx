@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { useApp } from '../context';
 import { Modal } from './ui';
-import type { Instrument, InstrumentType } from '../../../shared/types';
+import { ASSET_CLASSES, suggestAssetClass, type Instrument, type InstrumentType } from '../../../shared/types';
 
 const REGIONS = ['Norden', 'Europa', 'Nordamerika', 'Asien', 'Global', 'Tillväxtmarknader'];
 
@@ -54,9 +54,9 @@ export default function InstrumentForm({ initial, onClose, defaultType = 'EQUITY
       <form id="insform" className="form-grid" onSubmit={submit}>
         <label className="field">Typ
           <select value={d.type} onChange={set('type')} disabled={!!initial}>
-            <option value="EQUITY">Aktie</option>
-            <option value="FUND">Fond</option>
-            <option value="PE_FUND">PE-fond</option>
+            <option value="EQUITY">Direktägd aktie</option>
+            <option value="FUND">Öppen fond</option>
+            <option value="PE_FUND">Sluten fond (PE, infrastruktur, fastigheter …)</option>
           </select>
         </label>
         <label className="field">Valuta<input value={d.currency ?? ''} onChange={set('currency')} maxLength={3} required style={{ textTransform: 'uppercase' }} /></label>
@@ -64,6 +64,17 @@ export default function InstrumentForm({ initial, onClose, defaultType = 'EQUITY
         <label className="field">ISIN<input value={d.isin ?? ''} onChange={set('isin')} maxLength={12} style={{ textTransform: 'uppercase' }} /></label>
         {t !== 'PE_FUND' && <label className="field">Ticker<input value={d.ticker ?? ''} onChange={set('ticker')} /></label>}
         <label className="field">Land (ISO)<input value={d.country ?? ''} onChange={set('country')} maxLength={2} style={{ textTransform: 'uppercase' }} /></label>
+        <label className="field">Tillgångsslag
+          <select value={d.asset_class || suggestAssetClass(d as unknown as Instrument).asset_class} onChange={(e) => setD((x) => ({ ...x, asset_class: e.target.value, sub_class: '' }))}>
+            {ASSET_CLASSES.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
+          </select>
+        </label>
+        <label className="field">Delsegment
+          <select value={d.sub_class ?? ''} onChange={set('sub_class')}>
+            <option value="">{`Automatiskt (${suggestAssetClass(d as unknown as Instrument).sub_class})`}</option>
+            {(ASSET_CLASSES.find((a) => a.key === (d.asset_class || suggestAssetClass(d as unknown as Instrument).asset_class))?.subs ?? []).map((x) => <option key={x}>{x}</option>)}
+          </select>
+        </label>
         <label className="field">Region
           <select value={d.region ?? ''} onChange={set('region')}>
             <option value="">–</option>
@@ -75,7 +86,7 @@ export default function InstrumentForm({ initial, onClose, defaultType = 'EQUITY
           <label className="field">Fondkategori
             <select value={d.fund_category ?? ''} onChange={set('fund_category')}>
               <option value="">–</option>
-              <option>Aktiefond</option><option>Räntefond</option><option>Blandfond</option><option>Alternativ</option>
+              <option>Aktiefond</option><option>Räntefond</option><option>Blandfond</option><option>Hedgefond</option><option>Alternativ</option>
             </select>
           </label>
         )}

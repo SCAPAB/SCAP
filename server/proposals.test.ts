@@ -36,7 +36,7 @@ test('kapitalanrop: matchas på namn, avgiftsdelen bokas separat och påverkar i
   const [p] = newDoc([item({
     kind: 'CALL', instrument_name: F('Nordic Buyout Partners IV SCSp'), investor_label: F('Alfa AB'), date: F('2025-03-15'), currency: F('SEK'),
     amount: F(110_000), fee: F(10_000, 'medium'),
-    line_items: [{ description: 'Investment', amount: 100_000, affects_nav: true, page: 1 }, { description: 'Management fee', amount: 10_000, affects_nav: false, page: 1 }],
+    line_items: [{ description: 'Investment', amount: 100_000, category: 'investment', page: 1 }, { description: 'Management fee', amount: 10_000, category: 'mgmt_fee', page: 1 }],
   })]);
   assert.equal(p.instrument_id, 1);
   assert.equal(p.entity_id, 1);
@@ -107,4 +107,47 @@ test('NAV med avstämning mot kapitalkontot', () => {
 test('namnmatchning skiljer på fondnummer', () => {
   assert.equal(P.nameScore('Nordic Buyout Partners V', 'Nordic Buyout Partners IV'), 0);
   assert.ok(P.nameScore('Nordic Buyout Partners IV SCSp', 'Nordic Buyout Partners IV') > 0.9);
+});
+
+test('namnmatchning: vehikel, andelsklass och parallella fonder hålls isär', () => {
+  assert.ok(P.nameScore('Nordic Buyout Partners IV Parallel SCSp', 'Nordic Buyout Partners IV') <= 0.55);
+  assert.ok(P.nameScore('European Mid-Market Fund VI (No. 2) SCSp', 'European Mid-Market Fund VI') <= 0.55);
+  assert.equal(P.nameScore('Atlas Copco A', 'Atlas Copco B'), 0);
+  assert.equal(P.nameScore('Alfred Berg Nordic High Yield ACC R (EUR)', 'Alfred Berg Nordic High Yield ACC R (SEK)'), 0);
+  assert.ok(P.nameScore('Nordic Buyout Partners IV, L.P.', 'Nordic Buyout Partners IV') > 0.95);
+});
+
+test('osäker namnträff kräver bekräftelse och lärs in efter godkännande', () => {
+  const [p] = newDoc([item({ kind: 'NAV', instrument_name: F('Nordic Buyout Prtners IV Feeder'), investor_label: F('Alfa AB'), date: F('2025-09-30'), currency: F('SEK'), amount: F(125_000) })]);
+  assert.equal(p.instrument_id, null, 'feeder ska inte automatiskt kopplas till huvudfonden');
+  db.run("UPDATE proposals SET instrument_id=1, match=json_set(match, '$.instrument.id', 1, '$.instrument.method', 'manual', '$.instrument.confirmed', json('true')) WHERE id=?", p.id);
+  const p2 = db.get<import('./proposals.ts').ProposalRow>('SELECT * FROM proposals WHERE id=?', p.id)!;
+  P.approve(p2.id, null, { acknowledgeWarnings: true });
+  const [again] = newDoc([item({ kind: 'NAV', instrument_name: F('Nordic Buyout Prtners IV Feeder'), investor_label: F('Alfa AB'), date: F('2025-12-31'), currency: F('SEK'), amount: F(126_000) })]);
+  assert.equal(again.instrument_id, 1);
+  assert.equal(JSON.parse(again.match!).instrument.method, 'alias');
+});
+
+test('återinkallningsbar utdelning ökar outnyttjat åtagande', () => {
+  const [p] = newDoc([item({
+    kind: 'DISTRIBUTION', instrument_name: F('Nordic Buyout Partners IV'), investor_label: F('Alfa AB'), date: F('2025-10-15'), currency: F('SEK'), amount: F(50_000), fee: F(0),
+    line_items: [{ description: 'Return of capital (recallable)', amount: 30_000, category: 'recallable', page: 1 }, { description: 'Gain', amount: 20_000, category: 'gain', page: 1 }],
+  })]);
+  const f = JSON.parse(p.fields);
+  assert.equal(f.recallable.value, 30_000);
+  const ev = P.evaluate(p, p.document_id);
+  assert.ok(ev.preview.some((r) => r.label === 'Outnyttjat åtagande'));
+  const ref = P.approve(p.id, null, { acknowledgeWarnings: true });
+  assert.equal(db.get<{ recallable: number }>('SELECT recallable FROM transactions WHERE id=?', Number(ref.split(':')[1]))!.recallable, 30_000);
+});
+
+test('fyra ögon-principen: samma användare kan inte både granska och attestera', () => {
+  db.run("INSERT INTO users (id, email, name, password_hash, role) VALUES (10,'a@x','A','x','editor'),(11,'b@x','B','x','editor')");
+  db.run("INSERT INTO settings (key, value) VALUES ('dual_control','on')");
+  const [p] = newDoc([item({ kind: 'NAV', instrument_name: F('Nordic Buyout Partners IV'), investor_label: F('Alfa AB'), date: F('2026-03-31'), currency: F('SEK'), amount: F(130_000) })]);
+  assert.throws(() => P.approve(p.id, 10, { acknowledgeWarnings: true }), /granskad/);
+  P.prepare(p.id, 10, { acknowledgeWarnings: true });
+  assert.throws(() => P.approve(p.id, 10, { acknowledgeWarnings: true }), /annan användare/);
+  P.approve(p.id, 11, { acknowledgeWarnings: true });
+  db.run("UPDATE settings SET value='off' WHERE key='dual_control'");
 });

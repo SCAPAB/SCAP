@@ -6,7 +6,7 @@ import { all, get, run, audit, DB_PATH } from './db.ts';
 import { HttpError, requireRole } from './auth.ts';
 import { aiStatus, describeAiError, extractDocument } from './ai.ts';
 import {
-  KIND_FIELDS, LABELS, approve, proposeHoldingFix, buildProposals, createManualProposal, emptyField, evaluate, reject, refreshDocumentStatus,
+  KIND_FIELDS, LABELS, LINE_CATEGORIES, approve, prepare, dualControl, normalizeLines, proposeHoldingFix, buildProposals, createManualProposal, emptyField, evaluate, reject, refreshDocumentStatus,
   type Kind, type LineItem, type PField, type ProposalRow,
 } from './proposals.ts';
 import type { Entity, Instrument } from '../shared/types.ts';
@@ -101,7 +101,8 @@ docs.get('/documents', (req, res) => {
   const status = req.query.status as string | undefined;
   const rows = all<DocRow & { uploader: string | null; pending: number; approved: number; rejected: number; total: number }>(
     `SELECT d.id, d.filename, d.mime, d.status, d.doc_type, d.issuer, d.summary, d.error, d.uploaded_at, d.processed_at, u.name uploader,
-       COALESCE(SUM(p.status='pending'),0) pending, COALESCE(SUM(p.status='approved'),0) approved, COALESCE(SUM(p.status='rejected'),0) rejected, COUNT(p.id) total
+       COALESCE(SUM(p.status='pending'),0) pending, COALESCE(SUM(p.status='pending' AND p.prepared_by IS NOT NULL),0) prepared, COALESCE(SUM(p.status='approved'),0) approved, COALESCE(SUM(p.status='rejected'),0) rejected, COUNT(p.id) total,
+       (SELECT group_concat(DISTINCT i.name) FROM proposals p2 JOIN instruments i ON i.id=p2.instrument_id WHERE p2.document_id=d.id) funds
      FROM documents d LEFT JOIN users u ON u.id=d.uploaded_by LEFT JOIN proposals p ON p.document_id=d.id
      ${status ? 'WHERE d.status = ?' : ''} GROUP BY d.id ORDER BY d.id DESC LIMIT 500`,
     ...(status ? [status] : []),
@@ -138,7 +139,9 @@ function presentProposal(p: ProposalRow) {
   return {
     ...p,
     fields: JSON.parse(p.fields) as Record<string, PField>,
-    line_items: p.line_items ? (JSON.parse(p.line_items) as LineItem[]) : null,
+    line_items: normalizeLines(p.kind, p.line_items ? JSON.parse(p.line_items) : null),
+    line_categories: (LINE_CATEGORIES as Record<string, string[]>)[p.kind] ?? null,
+    prepared_by_name: p.prepared_by ? get<{ name: string }>('SELECT name FROM users WHERE id=?', p.prepared_by)?.name ?? null : null,
     match: p.match ? JSON.parse(p.match) : null,
     field_order: KIND_FIELDS[p.kind].map((f) => ({ key: f.replace('*', ''), required: f.endsWith('*'), label: LABELS[f.replace('*', '')] })),
     decided_by_name: decider,
@@ -216,13 +219,41 @@ docs.put('/proposals/:id', editor, (req, res) => {
   }
   if (Array.isArray(b.confirm)) for (const k of b.confirm as string[]) if (fields[k]) fields[k].confirmed = true;
   if (Array.isArray(b.unconfirm)) for (const k of b.unconfirm as string[]) if (fields[k]) fields[k].confirmed = false;
-  const lines = Array.isArray(b.line_items)
-    ? (b.line_items as LineItem[]).map((l) => ({ description: String(l.description ?? ''), amount: Math.abs(Number(l.amount) || 0), affects_nav: !!l.affects_nav, page: l.page ?? null }))
-    : p.line_items ? JSON.parse(p.line_items) : null;
+  const lines = Array.isArray(b.line_items) ? normalizeLines(kind, b.line_items as LineItem[]) : normalizeLines(kind, p.line_items ? JSON.parse(p.line_items) : null);
   const entity = b.entity_id !== undefined ? (b.entity_id ? Number(b.entity_id) : null) : p.entity_id;
   const instrument = b.instrument_id !== undefined ? (b.instrument_id ? Number(b.instrument_id) : null) : p.instrument_id;
-  run('UPDATE proposals SET kind=?, fields=?, line_items=?, entity_id=?, instrument_id=? WHERE id=?', kind, JSON.stringify(fields), lines ? JSON.stringify(lines) : null, entity, instrument, id);
+  // Manuellt val eller bekräftelse gör matchningen säker
+  const match = (p.match ? JSON.parse(p.match) : {}) as Record<string, Record<string, unknown>>;
+  const setManual = (k: 'entity' | 'instrument', id: number | null) => { match[k] = { ...(match[k] ?? { label: null, candidates: [] }), id, method: 'manual', score: 1, confirmed: true }; };
+  if (b.entity_id !== undefined && entity !== p.entity_id) setManual('entity', entity);
+  if (b.instrument_id !== undefined && instrument !== p.instrument_id) setManual('instrument', instrument);
+  if (Array.isArray(b.confirm_match)) for (const k of b.confirm_match as string[]) if (match[k]) match[k].confirmed = true;
+  run('UPDATE proposals SET kind=?, fields=?, line_items=?, entity_id=?, instrument_id=?, match=?, prepared_by=NULL, prepared_at=NULL WHERE id=?',
+    kind, JSON.stringify(fields), lines ? JSON.stringify(lines) : null, entity, instrument, JSON.stringify(match), id);
   res.json(presentProposal(get<ProposalRow>('SELECT * FROM proposals WHERE id=?', id)!));
+});
+
+docs.post('/proposals/:id/prepare', editor, (req, res) => {
+  prepare(Number(req.params.id), uid(req), { acknowledgeWarnings: !!req.body?.acknowledgeWarnings });
+  res.json({ ok: true });
+});
+
+docs.get('/settings', (_req, res) => res.json({ dual_control: dualControl(), report_lag_days: Number(get<{ value: string }>("SELECT value FROM settings WHERE key='report_lag_days'")?.value ?? 90) }));
+docs.put('/settings', requireRole('admin'), (req, res) => {
+  if (req.body?.dual_control !== undefined) run("INSERT INTO settings (key,value) VALUES ('dual_control',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", req.body.dual_control ? 'on' : 'off');
+  if (req.body?.report_lag_days !== undefined) run("INSERT INTO settings (key,value) VALUES ('report_lag_days',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", String(Math.max(15, Math.min(180, Number(req.body.report_lag_days) || 90))));
+  audit(uid(req), 'update', 'settings', null, req.body);
+  res.json({ ok: true });
+});
+
+docs.get('/aliases', (_req, res) => {
+  res.json(all(`SELECT a.*, u.name created_by_name, CASE a.kind WHEN 'instrument' THEN (SELECT name FROM instruments WHERE id=a.target_id) ELSE (SELECT name FROM entities WHERE id=a.target_id) END target_name
+    FROM aliases a LEFT JOIN users u ON u.id=a.created_by ORDER BY a.kind, a.raw`));
+});
+docs.delete('/aliases/:id', editor, (req, res) => {
+  run('DELETE FROM aliases WHERE id=?', Number(req.params.id));
+  audit(uid(req), 'delete', 'alias', req.params.id);
+  res.json({ ok: true });
 });
 
 docs.post('/proposals/:id/approve', editor, (req, res) => {

@@ -41,9 +41,9 @@ export default function Transactions() {
         <div className="row" style={{ marginBottom: 12 }}>
           <label className="field">Från<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
           <label className="field">Till<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
-          <label className="field">Tillgångsslag
+          <label className="field">Förvaltningsform
             <select value={assetType} onChange={(e) => setAssetType(e.target.value)}>
-              <option value="">Alla</option><option value="EQUITY">Aktier</option><option value="FUND">Fonder</option><option value="PE_FUND">PE-fonder</option>
+              <option value="">Alla</option><option value="EQUITY">Direktägda aktier</option><option value="FUND">Öppna fonder</option><option value="PE_FUND">Slutna fonder</option>
             </select>
           </label>
           <label className="field">Typ

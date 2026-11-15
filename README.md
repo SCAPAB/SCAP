@@ -12,15 +12,30 @@ npm run dev         # API på :3001 och webb på http://localhost:5173
 
 Produktionsläge: `npm run build && npm start`. Då serverar API:et den byggda klienten på http://localhost:3001.
 
-Demoinloggning: `admin@innehav.local` / `innehav` (administratör) och `lasare@innehav.local` / `innehav` (läsare).
+Demoinloggning: `admin@innehav.local` (administratör), `granskare@innehav.local` (redigerare, för att prova fyra ögon-principen) och `lasare@innehav.local` (läsare). Lösenordet är `innehav` för alla tre.
 Byt lösenorden innan systemet används på riktigt (Administration → Användare). Du kan också köra seed med `ADMIN_PASSWORD=...`.
 
 > Demodata är syntetiskt. Kurser, valutakurser, NAV och kassaflöden är framslumpade och motsvarar inte verkliga marknadsdata.
+
+## Struktur i menyn
+
+Systemet är uppbyggt som en institutionell kapitalförvaltare (till exempel ett universitetsendowment eller en stiftelse) arbetar:
+
+- **Portfölj:** Översikt · Allokering mot policy · Avkastning · Likviditet och åtaganden
+- **Tillgångsslag:** Noterade aktier · Räntebärande · Private equity · Reala tillgångar · Absolute return
+- **Operativt:** Inkorg · Rapportbevakning · Transaktioner · Kurser och valutor · Import
+- **Register och rapporter:** Instrument · Rapporter · Administration
+
+**Tillgångsslag** (ekonomisk exponering) är skilt från **förvaltningsform** (direktägd aktie, öppen fond eller sluten fond). En globalfond och en direktägd Apple-aktie hamnar båda under noterade aktier. En infrastrukturfond är en sluten fond men räknas till reala tillgångar. Beräkningsmetoden styrs av förvaltningsformen, medan segmenteringen och policyuppföljningen styrs av tillgångsslaget.
 
 ## Funktioner
 
 | Område | Innehåll |
 |---|---|
+| Allokering mot policy | Faktisk vikt mot målvikt och tillåtet intervall per tillgångsslag, exponering inklusive outnyttjade åtaganden, belopp till målvikt och delsegment. Policyportföljen redigeras av administratör |
+| Avkastning | Tidsviktad avkastning per tillgångsslag (1 mån–sedan start) och netto-IRR för slutna fonder |
+| Likviditet och åtaganden | Outnyttjade åtaganden, aviserade anrop, täckningsgrad och kassaflödesprognos enligt Takahashi–Alexander-modellen |
+| Rapportbevakning | Om varje GP har levererat kvartalsrapport (mottagen, väntar eller försenad) |
 | Översikt | Marknadsvärde, tidsviktad avkastning (1 mån, 3 mån, i år, 1 år, 3 år, sedan start), värdeutveckling mot nettoinvesterat kapital, största innehav, fördelning per tillgångsslag, valuta, region, bransch, förvaltare och juridisk enhet, varning för inaktuella kurser och NAV |
 | Aktier och fonder | Antal, GAV, kurs, anskaffnings- och marknadsvärde i SEK, orealiserat resultat uppdelat på kurs och valuta, realiserat resultat, utdelningar |
 | PE-fonder | Åtagande, inbetalt, outnyttjat, utdelat, NAV (rullas fram från senaste rapport), DPI, RVPI, TVPI, IRR lokalt och i SEK, kassaflöden per år (J-kurva) |
@@ -38,11 +53,13 @@ Grundprincip: **AI föreslår, människan godkänner.** Ingenting sparas i portf
 1. **Ladda upp** PDF- eller bildfiler, gärna flera samtidigt. Samma fil kan inte laddas upp två gånger, eftersom kontrollen görs på filens SHA-256.
 2. **AI-tolkning (Claude)** föreslår poster: kapitalanrop, utdelningar från PE-fonder, NAV från kapitalkontoutdrag, köp och sälj av fondandelar och aktier, aktieutdelningar, kurser och innehav. Varje fält får **värde, säkerhetsgrad, sidnummer och ordagrant citat**.
 3. **Granskning bredvid källan.** Dokumentet visas till vänster, och när du klickar på ett fält **markeras värdet i dokumentet**. Fälten är märkta *AI · säker*, *AI · kontrollera*, *AI · osäker* (måste bekräftas), *Ändrad av dig* (med återställning) eller *Manuell*.
-4. **Matchning** mot juridisk enhet (org.nr eller namn) och instrument (ISIN eller namn, där "Fund IV" aldrig blandas ihop med "Fund V"). Investeraretiketten i dokumentet verifieras mot vald enhet.
+4. **Matchning** mot juridisk enhet och instrument. Endast ISIN, org.nr, identiskt namn eller ett **inlärt namn** räknas som säker träff. Allt annat måste bekräftas eller väljas bland förslag. Fondnummer (IV/V), vehikel (huvudfond, parallell, feeder, "No. 2" eller co-invest) och andelsklass (A/B, valuta) hålls isär. När en matchning godkänns lärs namnet in per avsändare, så att nästa dokument från samma GP matchas säkert. Systemet varnar om avsändaren inte är fondens registrerade förvaltare, eller om enheten saknar åtagande i fonden.
 5. **Egna kontroller** som inte bygger på AI: möjliga dubbletter, att delposterna summerar till totalen, att avgiftsdelen stämmer, att antal × kurs stämmer med likvidbeloppet, att försäljningen inte överstiger innehavet, att anropet ryms inom åtagandet, NAV-avvikelse mot förra rapporten justerad för flöden, **avstämning mot kapitalkontot** (åtagande, inbetalt, utdelat, outnyttjat) och **avstämning mot innehavsbesked**, med en knapp som skapar köp- eller säljposten för differensen.
 6. **Förhandsvisning av effekten:** till exempel inbetalt, outnyttjat och NAV före och efter, eller antal, GAV och anskaffningsvärde före och efter.
-7. **Godkännande post för post.** Fel spärrar godkännandet, och varningar måste bekräftas aktivt. Ändringsloggen sparar vad AI föreslog, vad som ändrades, vilka osäkra värden som bekräftades och vilka varningar som accepterades. Transaktionen länkas till originaldokumentet.
-8. **Tolkningsregler per avsändare** (GP, fondbolag eller bank) skickas med till AI:n. **Tolka om** kan ta en engångsinstruktion.
+7. **Delposter med bokföringskategori:** investering, förvaltningsavgift, fondkostnader, utjämningsränta (utanför åtagandet), återbetalt kapital, återinkallningsbart kapital (ökar outnyttjat åtagande), realiserad vinst, ränta/utdelning och källskatt.
+8. **Fyra ögon-principen (valbar):** en användare granskar och markerar posten, en annan attesterar.
+9. **Godkännande post för post.** Fel spärrar godkännandet, och varningar måste bekräftas aktivt. Ändringsloggen sparar vad AI föreslog, vad som ändrades, vilka osäkra värden som bekräftades och vilka varningar som accepterades. Transaktionen länkas till originaldokumentet.
+10. **Tolkningsregler per avsändare** (GP, fondbolag eller bank) skickas med till AI:n. **Tolka om** kan ta en engångsinstruktion.
 
 ### Aktivera AI-tolkning
 
@@ -68,7 +85,9 @@ Ladda sedan upp PDF:erna från `data/demo-dokument/` i Inkorgen. Demodokumenten 
 - **Anskaffningsvärde** beräknas enligt genomsnittsmetoden, per juridisk enhet och inklusive courtage. Anskaffningsvärdet i SEK räknas med valutakursen på affärsdagen.
 - **Valutaeffekt** är anskaffningsvärdet i lokal valuta × dagens valutakurs minus anskaffningsvärdet i SEK.
 - **PE-NAV:** senast rapporterade NAV plus kapitalanropens investeringsdel (avgifter ingår i inbetalt men inte i NAV) och minus utdelningar efter rapportdatum. Saknas rapport används inbetalt minus utdelat. Framräknade värden markeras med *.
-- **Avkastning** är tidsviktad (TWR), länkad Modified Dietz per vecka. Köp, försäljningar, anrop och utdelningar räknas som externa flöden, så insättningar påverkar inte avkastningen.
+- **Avkastning** är tidsviktad (TWR) och bryts vid varje transaktionsdag (flöden i slutet av dagen). Köp, försäljningar, anrop och utdelningar räknas som externa flöden.
+- **Outnyttjat åtagande** = åtagande − anropat (exklusive utjämningsränta utanför åtagandet) + återinkallningsbara utdelningar.
+- **Kassaflödesprognos** enligt Takahashi & Alexander (2002) med schablonparametrar per strategi (tillväxt, löptid, bow, anropstakt).
 - **IRR** är XIRR på faktiska kassaflöden plus NAV som slutvärde.
 
 Beräkningarna finns i `server/calc.ts` och testas i `server/calc.test.ts` (`npm test`).

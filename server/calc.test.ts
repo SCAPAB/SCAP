@@ -6,7 +6,7 @@ import type { Instrument, Transaction } from '../shared/types.ts';
 
 const ins = (p: Partial<Instrument>): Instrument => ({
   id: 1, type: 'EQUITY', name: 'X', isin: null, ticker: null, currency: 'SEK', country: null, region: null, sector: null,
-  fund_category: null, manager: null, strategy: null, vintage: null, ...p,
+  fund_category: null, manager: null, strategy: null, vintage: null, asset_class: 'PUBLIC_EQUITY', sub_class: null, ...p,
 });
 let nextId = 1;
 const tx = (p: Partial<Transaction>): Transaction => ({
@@ -100,4 +100,18 @@ test('snapshot summerar över juridiska enheter och TWR påverkas inte av insät
   close(series[series.length - 1].index, 110, 1e-6);
   const pr = periodReturns(series, '2024-01-15');
   close(pr.find((p) => p.key === 'ALL')!.value, 0.1);
+});
+
+test('PE: utjämningsränta utanför åtagandet och återinkallningsbar utdelning påverkar outnyttjat korrekt', () => {
+  const pe = ins({ id: 3, type: 'PE_FUND' });
+  const m = new Market({ prices: [], fx: [], valuations: [] });
+  const txs = [
+    tx({ instrument_id: 3, type: 'COMMITMENT', amount: 1_000, trade_date: '2022-01-01' }),
+    tx({ instrument_id: 3, type: 'CALL', amount: 300, fee: 20, outside_commitment: 5, trade_date: '2022-06-01' }),
+    tx({ instrument_id: 3, type: 'DISTRIBUTION', amount: 100, recallable: 40, trade_date: '2023-06-01' }),
+  ];
+  const h = peHolding(pe, 1, txs, m, '2024-01-01');
+  close(h.paidIn, 320);
+  close(h.uncalled, 1_000 - 315 + 40);
+  close(h.nav, 300 - 100);
 });

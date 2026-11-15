@@ -9,8 +9,9 @@ import { validateInstrument, validateTransaction, isDate, num } from './validate
 import { importCsv, IMPORT_KINDS } from './importer.ts';
 import { toCsv } from './csv.ts';
 import { docs } from './documents.ts';
+import { portfolioRoutes } from './portfolio.ts';
 import type { Instrument, Transaction, ListedHolding, PeHolding, InstrumentType } from '../shared/types.ts';
-import { TX_LABELS, TYPE_LABELS } from '../shared/types.ts';
+import { TX_LABELS, TYPE_LABELS, ASSET_CLASS_LABEL, type AssetClass } from '../shared/types.ts';
 
 export const api = Router();
 
@@ -19,6 +20,7 @@ api.post('/auth/logout', logout);
 api.use(authenticate);
 api.get('/auth/me', (req, res) => res.json(req.user));
 api.use(docs);
+api.use(portfolioRoutes);
 
 const uid = (req: Request) => req.user?.id ?? null;
 const editor = requireRole('editor');
@@ -66,8 +68,8 @@ api.post('/instruments', editor, (req, res) => {
   const v = validateInstrument(req.body ?? {});
   if (v.isin && get('SELECT 1 FROM instruments WHERE isin=?', v.isin)) throw new HttpError(409, 'Ett instrument med detta ISIN finns redan');
   const r = run(
-    'INSERT INTO instruments (type,name,isin,ticker,currency,country,region,sector,fund_category,manager,strategy,vintage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-    v.type, v.name, v.isin, v.ticker, v.currency, v.country, v.region, v.sector, v.fund_category, v.manager, v.strategy, v.vintage,
+    'INSERT INTO instruments (type,name,isin,ticker,currency,country,region,sector,fund_category,manager,strategy,vintage,asset_class,sub_class) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    v.type, v.name, v.isin, v.ticker, v.currency, v.country, v.region, v.sector, v.fund_category, v.manager, v.strategy, v.vintage, v.asset_class, v.sub_class,
   );
   audit(uid(req), 'create', 'instrument', r.lastInsertRowid, v);
   bumpVersion();
@@ -81,8 +83,8 @@ api.put('/instruments/:id', editor, (req, res) => {
   const v = validateInstrument({ ...req.body, type: cur.type });
   if (v.currency !== cur.currency && get('SELECT 1 FROM transactions WHERE instrument_id=? LIMIT 1', id)) throw new HttpError(409, 'Valutan kan inte ändras när det finns transaktioner');
   run(
-    'UPDATE instruments SET name=?,isin=?,ticker=?,currency=?,country=?,region=?,sector=?,fund_category=?,manager=?,strategy=?,vintage=? WHERE id=?',
-    v.name, v.isin, v.ticker, v.currency, v.country, v.region, v.sector, v.fund_category, v.manager, v.strategy, v.vintage, id,
+    'UPDATE instruments SET name=?,isin=?,ticker=?,currency=?,country=?,region=?,sector=?,fund_category=?,manager=?,strategy=?,vintage=?,asset_class=?,sub_class=? WHERE id=?',
+    v.name, v.isin, v.ticker, v.currency, v.country, v.region, v.sector, v.fund_category, v.manager, v.strategy, v.vintage, v.asset_class, v.sub_class, id,
   );
   audit(uid(req), 'update', 'instrument', id, { before: cur, after: v });
   bumpVersion();
@@ -281,32 +283,33 @@ function enrichedSnapshot(ents: number[] | null, asOf: string, includeClosed = f
   });
 }
 
-const assetClass = (i: Instrument) =>
-  i.type === 'EQUITY' ? 'Aktier' : i.type === 'PE_FUND' ? 'Private equity' : i.fund_category === 'Räntefond' ? 'Räntefonder' : 'Aktiefonder';
+const assetClass = (i: Instrument) => ASSET_CLASS_LABEL[i.asset_class] ?? 'Övrigt';
 
 const DIMENSIONS: Record<string, { label: string; key: (i: Instrument) => string }> = {
   assetClass: { label: 'Tillgångsslag', key: assetClass },
+  subClass: { label: 'Delsegment', key: (i) => `${assetClass(i)} – ${i.sub_class ?? 'övrigt'}` },
   currency: { label: 'Valuta', key: (i) => i.currency },
   region: { label: 'Region', key: (i) => i.region ?? 'Okänd' },
   sector: { label: 'Bransch/inriktning', key: (i) => i.sector ?? 'Okänd' },
-  type: { label: 'Instrumenttyp', key: (i) => TYPE_LABELS[i.type] },
+  type: { label: 'Förvaltningsform', key: (i) => TYPE_LABELS[i.type] },
   manager: { label: 'Förvaltare', key: (i) => i.manager ?? (i.type === 'EQUITY' ? 'Direktägt' : 'Okänd') },
 };
 
-function allocations(ents: number[] | null, asOf: string, filter?: InstrumentType[]) {
+function allocations(ents: number[] | null, asOf: string, filter?: InstrumentType[], ac?: AssetClass) {
   const s = enrichedSnapshot(ents, asOf);
   const rows = [
     ...s.listed.map((h) => ({ i: h.instrument, v: h.mvBase })),
     ...s.pe.map((h) => ({ i: h.instrument, v: h.navBase })),
-  ].filter((r) => !filter || filter.includes(r.i.type));
+  ].filter((r) => (!filter || filter.includes(r.i.type)) && (!ac || r.i.asset_class === ac));
   const out: Record<string, { label: string; rows: ReturnType<typeof allocate> }> = {};
   for (const [k, d] of Object.entries(DIMENSIONS)) out[k] = { label: d.label, rows: allocate(rows.map((r) => ({ key: d.key(r.i), value: r.v }))) };
   // Per juridisk enhet
   const entRows: { key: string; value: number }[] = [];
   for (const e of entities().filter((e) => !ents || ents.includes(e.id))) {
     const es = enrichedSnapshot([e.id], asOf);
-    const v = [...es.listed.filter((h) => !filter || filter.includes(h.instrument.type)).map((h) => h.mvBase),
-      ...es.pe.filter((h) => !filter || filter.includes(h.instrument.type)).map((h) => h.navBase)].reduce((a, b) => a + b, 0);
+    const ok = (i: Instrument) => (!filter || filter.includes(i.type)) && (!ac || i.asset_class === ac);
+    const v = [...es.listed.filter((h) => ok(h.instrument)).map((h) => h.mvBase),
+      ...es.pe.filter((h) => ok(h.instrument)).map((h) => h.navBase)].reduce((a, b) => a + b, 0);
     if (v) entRows.push({ key: e.name, value: v });
   }
   out.entity = { label: 'Juridisk enhet', rows: allocate(entRows) };
@@ -376,36 +379,40 @@ api.get('/portfolio/holdings', (req, res) => {
   const ents = parseEntities(req.query.entities);
   const asOf = parseDate(req.query.asOf, today());
   const type = req.query.type as InstrumentType | undefined;
+  const ac = req.query.assetClass as AssetClass | undefined;
   const s = enrichedSnapshot(ents, asOf, req.query.includeClosed === '1');
-  const listed = s.listed.filter((h) => !type || h.instrument.type === type);
-  const pe = s.pe.filter((h) => !type || type === 'PE_FUND');
+  const ok = (i: Instrument) => (!type || i.type === type) && (!ac || i.asset_class === ac);
+  const listed = s.listed.filter((h) => ok(h.instrument));
+  const pe = s.pe.filter((h) => ok(h.instrument));
   const sum = <T>(a: T[], f: (x: T) => number) => a.reduce((x, y) => x + f(y), 0);
   const peAll = sum(pe, (h) => h.paidInBase);
+  const value = sum(listed, (h) => h.mvBase) + sum(pe, (h) => h.navBase);
+  const policy = ac ? get<{ target: number; min: number; max: number }>('SELECT target, min, max FROM policy_targets WHERE asset_class=?', ac) : null;
   res.json({
     asOf,
-    listed: type === 'PE_FUND' ? [] : listed,
-    pe: !type || type === 'PE_FUND' ? pe : [],
-    summary: type === 'PE_FUND'
-      ? {
-        commitment: sum(pe, (h) => h.commitmentBase), paidIn: peAll, distributed: sum(pe, (h) => h.distributedBase),
-        nav: sum(pe, (h) => h.navBase), uncalled: sum(pe, (h) => h.uncalledBase), pnl: sum(pe, (h) => h.pnlBase),
-        dpi: peAll ? sum(pe, (h) => h.distributedBase) / peAll : null,
-        tvpi: peAll ? (sum(pe, (h) => h.distributedBase) + sum(pe, (h) => h.navBase)) / peAll : null,
-        irr: peIrr(ents, asOf),
-      }
-      : {
-        marketValue: sum(listed, (h) => h.mvBase), cost: sum(listed, (h) => h.costBase), unrealized: sum(listed, (h) => h.unrealizedBase),
-        realized: sum(listed, (h) => h.realizedBase), dividends: sum(listed, (h) => h.dividendsBase), fees: sum(listed, (h) => h.feesBase),
-        fxEffect: sum(listed, (h) => h.fxEffectBase), totalPnl: sum(listed, (h) => h.totalPnlBase),
-      },
-    allocations: allocations(ents, asOf, type ? [type] : undefined),
+    listed,
+    pe,
+    total: { value, share: s.total ? value / s.total : 0, portfolio: s.total, policy: policy ?? null, uncalled: sum(pe, (h) => h.uncalledBase) },
+    privateSummary: pe.length ? {
+      commitment: sum(pe, (h) => h.commitmentBase), paidIn: peAll, distributed: sum(pe, (h) => h.distributedBase),
+      nav: sum(pe, (h) => h.navBase), uncalled: sum(pe, (h) => h.uncalledBase), pnl: sum(pe, (h) => h.pnlBase),
+      dpi: peAll ? sum(pe, (h) => h.distributedBase) / peAll : null,
+      tvpi: peAll ? (sum(pe, (h) => h.distributedBase) + sum(pe, (h) => h.navBase)) / peAll : null,
+      irr: peIrr(ents, asOf, new Set(pe.map((h) => h.instrumentId))),
+    } : null,
+    listedSummary: listed.length ? {
+      marketValue: sum(listed, (h) => h.mvBase), cost: sum(listed, (h) => h.costBase), unrealized: sum(listed, (h) => h.unrealizedBase),
+      realized: sum(listed, (h) => h.realizedBase), dividends: sum(listed, (h) => h.dividendsBase), fees: sum(listed, (h) => h.feesBase),
+      fxEffect: sum(listed, (h) => h.fxEffectBase), totalPnl: sum(listed, (h) => h.totalPnlBase),
+    } : null,
+    allocations: allocations(ents, asOf, type ? [type] : undefined, ac),
   });
 });
 
-/** Sammanlagd IRR i SEK för hela PE-portföljen. */
-function peIrr(ents: number[] | null, asOf: string) {
+/** Sammanlagd IRR i SEK för slutna fonder (valfritt urval av instrument). */
+function peIrr(ents: number[] | null, asOf: string, only?: Set<number>) {
   const data = portfolioData(ents);
-  const parts = data.instruments.filter((i) => i.type === 'PE_FUND').flatMap((ins) => {
+  const parts = data.instruments.filter((i) => i.type === 'PE_FUND' && (!only || only.has(i.id))).flatMap((ins) => {
     const by = new Map<number, Transaction[]>();
     for (const t of data.transactions.filter((t) => t.instrument_id === ins.id)) by.set(t.entity_id, [...(by.get(t.entity_id) ?? []), t]);
     return [...by].map(([e, txs]) => peHolding(ins, e, txs, data.market, asOf));
@@ -417,10 +424,12 @@ function peIrr(ents: number[] | null, asOf: string) {
 api.get('/portfolio/pe-cashflows', (req, res) => {
   const ents = parseEntities(req.query.entities);
   const data = portfolioData(ents);
-  const peIds = new Set(data.instruments.filter((i) => i.type === 'PE_FUND').map((i) => i.id));
+  const ac = req.query.assetClass as string | undefined;
+  const peIds = new Set(data.instruments.filter((i) => i.type === 'PE_FUND' && (!ac || i.asset_class === ac)).map((i) => i.id));
+  const asOf = parseDate(req.query.asOf, today());
   const byYear = new Map<string, { calls: number; distributions: number }>();
   for (const t of data.transactions) {
-    if (!peIds.has(t.instrument_id)) continue;
+    if (!peIds.has(t.instrument_id) || t.trade_date > asOf) continue;
     const y = t.trade_date.slice(0, 4);
     const r = byYear.get(y) ?? { calls: 0, distributions: 0 };
     if (t.type === 'CALL' || t.type === 'FEE') r.calls += (t.amount + t.fee) * t.fx_rate;
