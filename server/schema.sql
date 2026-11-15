@@ -101,3 +101,56 @@ CREATE TABLE IF NOT EXISTS audit_log (
   object_id  TEXT,
   details    TEXT
 );
+
+-- ---------------------------------------------------------------------------
+-- Dokumentinkorg: uppladdade underlag, AI-förslag och manuellt godkännande
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS documents (
+  id           INTEGER PRIMARY KEY,
+  filename     TEXT NOT NULL,
+  mime         TEXT NOT NULL,
+  sha256       TEXT NOT NULL UNIQUE,
+  size         INTEGER NOT NULL,
+  pages        INTEGER,
+  status       TEXT NOT NULL DEFAULT 'processing' CHECK (status IN ('processing','review','done','error','manual')),
+  doc_type     TEXT,
+  issuer       TEXT,
+  investor_label TEXT,
+  summary      TEXT,
+  extraction   TEXT,      -- rått AI-svar (JSON) för spårbarhet
+  ai_model     TEXT,
+  error        TEXT,
+  uploaded_by  INTEGER REFERENCES users(id),
+  uploaded_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  processed_at TEXT
+);
+
+-- Ett förslag = en post som ska in i systemet (transaktion, NAV, kurs eller avstämning)
+CREATE TABLE IF NOT EXISTS proposals (
+  id            INTEGER PRIMARY KEY,
+  document_id   INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  seq           INTEGER NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('BUY','SELL','DIVIDEND','FEE','COMMITMENT','CALL','DISTRIBUTION','NAV','PRICE','HOLDING')),
+  origin        TEXT NOT NULL DEFAULT 'ai' CHECK (origin IN ('ai','manual')),
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  entity_id     INTEGER REFERENCES entities(id),
+  instrument_id INTEGER REFERENCES instruments(id),
+  match         TEXT,     -- JSON: hur enhet/instrument matchades
+  fields        TEXT NOT NULL, -- JSON: { fält: { value, ai_value, confidence, page, quote, edited, confirmed } }
+  line_items    TEXT,     -- JSON: delposter (kapitalanrop/utdelningar)
+  result_ref    TEXT,     -- vad som skapades vid godkännande, t.ex. "transaction:412"
+  decided_by    INTEGER REFERENCES users(id),
+  decided_at    TEXT,
+  comment       TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_prop_doc ON proposals(document_id, seq);
+
+-- Avsändarspecifika tolkningsregler (lärs upp av användarna)
+CREATE TABLE IF NOT EXISTS extraction_rules (
+  id           INTEGER PRIMARY KEY,
+  issuer       TEXT NOT NULL,
+  instructions TEXT NOT NULL,
+  updated_by   INTEGER REFERENCES users(id),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);

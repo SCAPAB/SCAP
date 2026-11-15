@@ -6,7 +6,7 @@ import TxForm from '../components/TxForm';
 import { fmt } from '../format';
 import { TX_LABELS, TYPE_LABELS, type InstrumentType, type Transaction, type TxType } from '../../../shared/types';
 
-type Row = Transaction & { instrument_name: string; currency: string; instrument_type: InstrumentType; entity_name: string };
+type Row = Transaction & { document_id: number | null; instrument_name: string; currency: string; instrument_type: InstrumentType; entity_name: string };
 
 export default function Transactions() {
   const { scope, canEdit } = useApp();
@@ -74,6 +74,7 @@ export default function Transactions() {
               { key: 'c', label: 'Valuta', render: (r) => r.currency },
               { key: 'sek', label: 'Belopp SEK', num: true, sortValue: (r) => r.amount * r.fx_rate, render: (r) => fmt.int(r.amount * r.fx_rate) },
               { key: 'n', label: 'Notering', render: (r) => <span className="muted">{r.note}</span> },
+              { key: 'src', label: 'Källa', render: (r) => (r.document_id ? <Link to={`/inkorg/${r.document_id}`} onClick={(e) => e.stopPropagation()} title="Öppna underlaget">Dokument</Link> : <span className="muted small">Manuell</span>) },
             ]}
           />
         )}

@@ -8,6 +8,7 @@ import { allocate, peHolding, listedHolding, periodReturns, snapshot, valueSerie
 import { validateInstrument, validateTransaction, isDate, num } from './validate.ts';
 import { importCsv, IMPORT_KINDS } from './importer.ts';
 import { toCsv } from './csv.ts';
+import { docs } from './documents.ts';
 import type { Instrument, Transaction, ListedHolding, PeHolding, InstrumentType } from '../shared/types.ts';
 import { TX_LABELS, TYPE_LABELS } from '../shared/types.ts';
 
@@ -17,6 +18,7 @@ api.post('/auth/login', login);
 api.post('/auth/logout', logout);
 api.use(authenticate);
 api.get('/auth/me', (req, res) => res.json(req.user));
+api.use(docs);
 
 const uid = (req: Request) => req.user?.id ?? null;
 const editor = requireRole('editor');

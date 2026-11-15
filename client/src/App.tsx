@@ -15,6 +15,10 @@ import MarketData from './pages/MarketData';
 import ImportPage from './pages/Import';
 import Reports from './pages/Reports';
 import Admin from './pages/Admin';
+import Inbox from './pages/Inbox';
+import Review from './pages/Review';
+import Rules from './pages/Rules';
+import { useFetch } from './context';
 
 export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -80,7 +84,8 @@ const NAV: { group?: string; to: string; label: string; admin?: boolean }[] = [
   { group: 'Innehav', to: '/aktier', label: 'Aktier' },
   { to: '/fonder', label: 'Fonder' },
   { to: '/pe', label: 'PE-fonder' },
-  { group: 'Förvaltning', to: '/transaktioner', label: 'Transaktioner' },
+  { group: 'Förvaltning', to: '/inkorg', label: 'Inkorg' },
+  { to: '/transaktioner', label: 'Transaktioner' },
   { to: '/instrument', label: 'Instrument' },
   { to: '/marknadsdata', label: 'Kurser & värderingar' },
   { to: '/import', label: 'Import' },
@@ -93,6 +98,12 @@ function Shell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const loc = useLocation();
   useEffect(() => setMenuOpen(false), [loc.pathname]);
+  const [poll, setPoll] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setPoll((x) => x + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const { data: counts } = useFetch<{ toReview: number | null; processing: number | null }>('/documents/counts', [poll, loc.pathname]);
   return (
     <div className="app">
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
@@ -101,7 +112,10 @@ function Shell() {
           {NAV.filter((n) => !n.admin || isAdmin).map((n) => (
             <div key={n.to}>
               {n.group && <div className="nav-group">{n.group}</div>}
-              <NavLink to={n.to} end>{n.label}</NavLink>
+              <NavLink to={n.to} end={n.to !== '/inkorg'}>
+                {n.label}
+                {n.to === '/inkorg' && !!counts?.toReview && <span className="nav-count" title="Dokument att granska">{counts.toReview}</span>}
+              </NavLink>
             </div>
           ))}
         </nav>
@@ -132,6 +146,9 @@ function Shell() {
             <Route path="/instrument" element={<Instruments />} />
             <Route path="/marknadsdata" element={<MarketData />} />
             <Route path="/import" element={<ImportPage />} />
+            <Route path="/inkorg" element={<Inbox />} />
+            <Route path="/inkorg/regler" element={<Rules />} />
+            <Route path="/inkorg/:id" element={<Review />} />
             <Route path="/rapporter" element={<Reports />} />
             <Route path="/admin" element={isAdmin ? <Admin /> : <Navigate to="/" />} />
             <Route path="*" element={<Navigate to="/" />} />

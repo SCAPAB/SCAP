@@ -31,12 +31,43 @@ Byt lösenorden innan systemet används på riktigt (Administration → Använda
 | Rapporter | Innehavsrapport (per enhet, valfritt datum) och transaktionsrapport som CSV för Excel, samt utskrift och PDF av alla vyer |
 | Säkerhet | Inloggning, roller (läsare, redigerare, administratör) och ändringslogg över alla ändringar |
 
+## Inkorg – underlag med AI-förslag och manuellt godkännande
+
+Grundprincip: **AI föreslår, människan godkänner.** Ingenting sparas i portföljen innan någon har godkänt posten.
+
+1. **Ladda upp** PDF- eller bildfiler, gärna flera samtidigt. Samma fil kan inte laddas upp två gånger, eftersom kontrollen görs på filens SHA-256.
+2. **AI-tolkning (Claude)** föreslår poster: kapitalanrop, utdelningar från PE-fonder, NAV från kapitalkontoutdrag, köp och sälj av fondandelar och aktier, aktieutdelningar, kurser och innehav. Varje fält får **värde, säkerhetsgrad, sidnummer och ordagrant citat**.
+3. **Granskning bredvid källan.** Dokumentet visas till vänster, och när du klickar på ett fält **markeras värdet i dokumentet**. Fälten är märkta *AI · säker*, *AI · kontrollera*, *AI · osäker* (måste bekräftas), *Ändrad av dig* (med återställning) eller *Manuell*.
+4. **Matchning** mot juridisk enhet (org.nr eller namn) och instrument (ISIN eller namn, där "Fund IV" aldrig blandas ihop med "Fund V"). Investeraretiketten i dokumentet verifieras mot vald enhet.
+5. **Egna kontroller** som inte bygger på AI: möjliga dubbletter, att delposterna summerar till totalen, att avgiftsdelen stämmer, att antal × kurs stämmer med likvidbeloppet, att försäljningen inte överstiger innehavet, att anropet ryms inom åtagandet, NAV-avvikelse mot förra rapporten justerad för flöden, **avstämning mot kapitalkontot** (åtagande, inbetalt, utdelat, outnyttjat) och **avstämning mot innehavsbesked**, med en knapp som skapar köp- eller säljposten för differensen.
+6. **Förhandsvisning av effekten:** till exempel inbetalt, outnyttjat och NAV före och efter, eller antal, GAV och anskaffningsvärde före och efter.
+7. **Godkännande post för post.** Fel spärrar godkännandet, och varningar måste bekräftas aktivt. Ändringsloggen sparar vad AI föreslog, vad som ändrades, vilka osäkra värden som bekräftades och vilka varningar som accepterades. Transaktionen länkas till originaldokumentet.
+8. **Tolkningsregler per avsändare** (GP, fondbolag eller bank) skickas med till AI:n. **Tolka om** kan ta en engångsinstruktion.
+
+### Aktivera AI-tolkning
+
+```bash
+export ANTHROPIC_API_KEY=...        # nyckel från console.anthropic.com
+export INNEHAV_AI_MODEL=claude-opus-5-5   # valfritt, detta är standard
+```
+
+Dokumenten skickas då till Anthropics API för tolkning. Kontrollera att det är förenligt med era riktlinjer för informationshantering. Utan nyckel fungerar Inkorgen ändå: posterna registreras manuellt med samma kontroller och samma godkännande.
+
+### Demo utan API-nyckel
+
+```bash
+npm run demo        # demodata + fyra demodokument i data/demo-dokument/
+npm run dev:demo    # startar med förinspelade AI-svar för demodokumenten
+```
+
+Ladda sedan upp PDF:erna från `data/demo-dokument/` i Inkorgen. Demodokumenten innehåller två avsiktliga avvikelser: ett saknat kapitalanrop för Demo Stiftelse och 1 500 för många aktier i innehavsbeskedet.
+
 ## Beräkningsprinciper
 
 - **Rapportvaluta** är SEK. Valutakurs anges som SEK per enhet.
 - **Anskaffningsvärde** beräknas enligt genomsnittsmetoden, per juridisk enhet och inklusive courtage. Anskaffningsvärdet i SEK räknas med valutakursen på affärsdagen.
 - **Valutaeffekt** är anskaffningsvärdet i lokal valuta × dagens valutakurs minus anskaffningsvärdet i SEK.
-- **PE-NAV:** senast rapporterade NAV plus kapitalanrop och minus utdelningar efter rapportdatum. Saknas rapport används inbetalt minus utdelat. Framräknade värden markeras med *.
+- **PE-NAV:** senast rapporterade NAV plus kapitalanropens investeringsdel (avgifter ingår i inbetalt men inte i NAV) och minus utdelningar efter rapportdatum. Saknas rapport används inbetalt minus utdelat. Framräknade värden markeras med *.
 - **Avkastning** är tidsviktad (TWR), länkad Modified Dietz per vecka. Köp, försäljningar, anrop och utdelningar räknas som externa flöden, så insättningar påverkar inte avkastningen.
 - **IRR** är XIRR på faktiska kassaflöden plus NAV som slutvärde.
 
@@ -45,7 +76,7 @@ Beräkningarna finns i `server/calc.ts` och testas i `server/calc.test.ts` (`npm
 ## Struktur
 
 ```
-server/   Express-API, SQLite (node:sqlite), beräkningar, import
+server/   Express-API, SQLite (node:sqlite), beräkningar, import, AI-tolkning (ai.ts), förslag och kontroller (proposals.ts)
 client/   React + Vite, svenskt gränssnitt
 shared/   gemensamma typer
 ```

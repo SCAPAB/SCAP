@@ -11,7 +11,18 @@ export function openDb(path = DB_PATH): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(readFileSync(join(here, 'schema.sql'), 'utf8'));
+  migrate(db);
   return db;
+}
+
+/** Lägger till kolumner i befintliga databaser (CREATE TABLE IF NOT EXISTS ändrar inte gamla tabeller). */
+function migrate(d: DatabaseSync) {
+  const cols = (t: string) => (d.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
+  const tx = cols('transactions');
+  if (!tx.includes('document_id')) d.exec('ALTER TABLE transactions ADD COLUMN document_id INTEGER REFERENCES documents(id)');
+  if (!tx.includes('details')) d.exec('ALTER TABLE transactions ADD COLUMN details TEXT');
+  const v = cols('pe_valuations');
+  if (!v.includes('document_id')) d.exec('ALTER TABLE pe_valuations ADD COLUMN document_id INTEGER REFERENCES documents(id)');
 }
 
 export const db = openDb();

@@ -211,11 +211,12 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
         h.commitment += t.amount;
         break;
       case 'CALL':
+        // amount = investering (ökar NAV), fee = förvaltningsavgift/kostnader (ingår i inbetalt men inte i NAV)
         h.called += amt;
         h.paidInBase += amt * t.fx_rate;
         h.flowsLocal.push({ date: t.trade_date, amount: -amt });
         h.flowsBase.push({ date: t.trade_date, amount: -amt * t.fx_rate });
-        if (!val || t.trade_date > val.date) rollForward += amt;
+        if (!val || t.trade_date > val.date) rollForward += t.amount;
         break;
       case 'FEE':
         h.fees += amt;

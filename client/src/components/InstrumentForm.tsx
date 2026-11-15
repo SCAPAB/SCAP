@@ -6,10 +6,10 @@ import type { Instrument, InstrumentType } from '../../../shared/types';
 
 const REGIONS = ['Norden', 'Europa', 'Nordamerika', 'Asien', 'Global', 'Tillväxtmarknader'];
 
-export default function InstrumentForm({ initial, onClose, defaultType = 'EQUITY' }: { initial?: Instrument; onClose: () => void; defaultType?: InstrumentType }) {
+export default function InstrumentForm({ initial, onClose, defaultType = 'EQUITY', prefill, onSaved }: { initial?: Instrument; onClose: () => void; defaultType?: InstrumentType; prefill?: Partial<Record<keyof Instrument, string>>; onSaved?: (id: number) => void }) {
   const { bump } = useApp();
   const [d, setD] = useState<Record<string, string>>(() =>
-    initial ? Object.fromEntries(Object.entries(initial).map(([k, v]) => [k, v == null ? '' : String(v)])) : { type: defaultType, currency: 'SEK', region: 'Norden' },
+    initial ? Object.fromEntries(Object.entries(initial).map(([k, v]) => [k, v == null ? '' : String(v)])) : { type: defaultType, currency: 'SEK', region: 'Norden', ...Object.fromEntries(Object.entries(prefill ?? {}).filter(([, v]) => v)) },
   );
   const [error, setError] = useState<string | null>(null);
   const set = (k: string) => (e: { target: { value: string } }) => setD((x) => ({ ...x, [k]: e.target.value }));
@@ -19,7 +19,10 @@ export default function InstrumentForm({ initial, onClose, defaultType = 'EQUITY
     setError(null);
     try {
       if (initial) await api.put(`/instruments/${initial.id}`, d);
-      else await api.post('/instruments', d);
+      else {
+        const r = await api.post<{ id: number }>('/instruments', d);
+        onSaved?.(r.id);
+      }
       bump();
       onClose();
     } catch (err) {

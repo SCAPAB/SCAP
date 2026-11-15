@@ -40,7 +40,7 @@ function walk(start: number, annualDrift: number, annualVol: number) {
 }
 
 tx(() => {
-  for (const t of ['audit_log', 'sessions', 'transactions', 'prices', 'pe_valuations', 'fx_rates', 'instruments', 'entities', 'users']) run(`DELETE FROM ${t}`);
+  for (const t of ['proposals', 'extraction_rules', 'audit_log', 'sessions', 'transactions', 'documents', 'prices', 'pe_valuations', 'fx_rates', 'instruments', 'entities', 'users']) run(`DELETE FROM ${t}`);
 
   // Användare
   const pw = process.env.ADMIN_PASSWORD ?? 'innehav';

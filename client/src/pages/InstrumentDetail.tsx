@@ -9,7 +9,7 @@ import InstrumentForm from '../components/InstrumentForm';
 import { fmt, tone, today } from '../format';
 import { TX_LABELS, TYPE_LABELS, type Instrument, type ListedHolding, type PeHolding, type Transaction } from '../../../shared/types';
 
-type Tx = Transaction & { entity_name: string };
+type Tx = Transaction & { entity_name: string; document_id: number | null };
 type Val = { entity_id: number; instrument_id: number; date: string; nav: number; source: string; entity_name: string };
 interface Resp {
   instrument: Instrument;
@@ -96,6 +96,7 @@ export default function InstrumentDetail() {
                 { key: 'f', label: 'Avgift', num: true, render: (t) => (t.fee ? fmt.dec(t.fee) : '') },
                 { key: 'fx', label: 'Valutakurs', num: true, render: (t) => (ins.currency === 'SEK' ? '' : fmt.dec(t.fx_rate, 4)) },
                 { key: 'n', label: 'Notering', render: (t) => <span className="muted">{t.note}</span> },
+                { key: 'src', label: 'Källa', render: (t) => (t.document_id ? <Link to={`/inkorg/${t.document_id}`} onClick={(e) => e.stopPropagation()}>Dokument</Link> : '') },
               ]}
             />
           </div>
