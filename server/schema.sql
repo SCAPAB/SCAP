@@ -180,3 +180,14 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Logg över hämtningar från Morningstar
+CREATE TABLE IF NOT EXISTS ms_sync_log (
+  id      INTEGER PRIMARY KEY,
+  ts      TEXT NOT NULL DEFAULT (datetime('now')),
+  user_id INTEGER REFERENCES users(id),
+  kind    TEXT NOT NULL,
+  ok      INTEGER NOT NULL,
+  summary TEXT,
+  details TEXT
+);

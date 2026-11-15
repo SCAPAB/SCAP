@@ -373,3 +373,6 @@ select.invalid, input.invalid { border-color: var(--neg); box-shadow: inset 2px 
 }
 
 .flag { display: inline-block; width: 6px; height: 6px; background: var(--neg); margin-left: 5px; vertical-align: 2px; }
+.lookup-box { border: 1px solid var(--line-strong); padding: 10px 12px; margin-bottom: 14px; background: var(--surface-2); }
+.lookup-box th { background: var(--surface-2); }
+.lookup-box th { position: static; }

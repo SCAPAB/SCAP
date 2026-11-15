@@ -26,6 +26,8 @@ function migrate(d: DatabaseSync) {
   const ins = cols('instruments');
   if (!ins.includes('asset_class')) d.exec("ALTER TABLE instruments ADD COLUMN asset_class TEXT NOT NULL DEFAULT 'PUBLIC_EQUITY'");
   if (!ins.includes('sub_class')) d.exec('ALTER TABLE instruments ADD COLUMN sub_class TEXT');
+  if (!ins.includes('ms_secid')) d.exec('ALTER TABLE instruments ADD COLUMN ms_secid TEXT');
+  if (!ins.includes('ms_listing')) d.exec('ALTER TABLE instruments ADD COLUMN ms_listing TEXT');
   const pr = cols('proposals');
   if (!pr.includes('prepared_by')) d.exec('ALTER TABLE proposals ADD COLUMN prepared_by INTEGER REFERENCES users(id)');
   if (!pr.includes('prepared_at')) d.exec('ALTER TABLE proposals ADD COLUMN prepared_at TEXT');

@@ -4,25 +4,27 @@ import { api } from '../api';
 import { useApp, useFetch } from '../context';
 import { DataTable, ErrorBox, Loading } from '../components/ui';
 import { fmt, today } from '../format';
+import MorningstarPanel from '../components/MorningstarPanel';
 import type { Instrument } from '../../../shared/types';
 
 type Ins = Instrument & { lastPrice: { date: string; value: number } | null };
 
 export default function MarketData() {
-  const [tab, setTab] = useState<'prices' | 'fx'>('prices');
+  const [tab, setTab] = useState<'prices' | 'fx' | 'ms'>('prices');
   return (
     <div>
       <div className="page-head">
         <div>
-          <h1>Kurser & värderingar</h1>
+          <h1>Kurser och valutor</h1>
           <p>Marknadsdata som används för värdering. NAV för PE-fonder registreras på respektive fond. Massuppdatering görs via <Link to="/import">Import</Link>.</p>
         </div>
       </div>
       <div className="tabs">
         <button className={tab === 'prices' ? 'on' : ''} onClick={() => setTab('prices')}>Kurser</button>
         <button className={tab === 'fx' ? 'on' : ''} onClick={() => setTab('fx')}>Valutakurser</button>
+        <button className={tab === 'ms' ? 'on' : ''} onClick={() => setTab('ms')}>Morningstar</button>
       </div>
-      {tab === 'prices' ? <Prices /> : <Fx />}
+      {tab === 'prices' ? <Prices /> : tab === 'fx' ? <Fx /> : <MorningstarPanel />}
     </div>
   );
 }

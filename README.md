@@ -85,6 +85,17 @@ npm run dev:demo    # startar med förinspelade AI-svar för demodokumenten
 
 Ladda sedan upp PDF:erna från `data/demo-dokument/` i Inkorgen. Demodokumenten innehåller två avsiktliga avvikelser: ett saknat kapitalanrop för Demo Stiftelse och 1 500 för många aktier i innehavsbeskedet.
 
+## Morningstar (Analytics Lab)
+
+Under **Kurser och valutor → Morningstar** hämtas kurser och grunddata från Morningstar via LRF:s Analytics Lab-licens (Python-paketet `morningstar-data`).
+
+1. **Anslut:** öppna Analytics Lab, välj **Analytics Lab → Copy Authentication Token** och klistra in nyckeln. Nyckeln hålls bara i serverns minne och visar när den går ut.
+2. **Koppla instrument:** programmet söker på ISIN och föreslår rätt listning (instrumentets valuta och hemmabörs). Du bekräftar varje koppling, eller alla tydliga på en gång.
+3. **Hämta kurser:** dagskurs för aktier och NAV för fonder, sedan senaste hämtningen eller från valt datum. Manuella kurser skrivs aldrig över. Stora avvikelser mot tidigare källa flaggas.
+4. **Nytt instrument:** skriv ISIN och klicka på **Morningstar**. Namn, valuta, bransch eller kategori och tillgångsslag fylls i och kopplingen sparas.
+
+Krav på servern: Python 3.9 eller senare och `pip install morningstar-data`. Codespaces installerar detta automatiskt i `.venv`. Datapunkts-id kan ändras med miljövariablerna `MS_DP_*` i `scripts/morningstar_bridge.py`. Nyckeln från Analytics Lab är kortlivad, så för helt automatisk nattlig hämtning behövs en långlivad API-nyckel från Morningstar.
+
 ## Beräkningsprinciper
 
 - **Rapportvaluta** är SEK. Valutakurs anges som SEK per enhet.

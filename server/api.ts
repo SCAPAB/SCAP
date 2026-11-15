@@ -10,6 +10,7 @@ import { importCsv, IMPORT_KINDS } from './importer.ts';
 import { toCsv } from './csv.ts';
 import { docs } from './documents.ts';
 import { portfolioRoutes } from './portfolio.ts';
+import { morningstar } from './morningstar.ts';
 import type { Instrument, Transaction, ListedHolding, PeHolding, InstrumentType } from '../shared/types.ts';
 import { TX_LABELS, TYPE_LABELS, ASSET_CLASS_LABEL, type AssetClass } from '../shared/types.ts';
 
@@ -21,6 +22,7 @@ api.use(authenticate);
 api.get('/auth/me', (req, res) => res.json(req.user));
 api.use(docs);
 api.use(portfolioRoutes);
+api.use(morningstar);
 
 const uid = (req: Request) => req.user?.id ?? null;
 const editor = requireRole('editor');

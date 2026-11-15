@@ -3,3 +3,5 @@ dist
 data/*.db*
 data/documents
 data/demo-dokument
+.venv
+__pycache__/

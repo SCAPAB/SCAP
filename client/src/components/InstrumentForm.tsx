@@ -12,15 +12,36 @@ export default function InstrumentForm({ initial, onClose, defaultType = 'EQUITY
     initial ? Object.fromEntries(Object.entries(initial).map(([k, v]) => [k, v == null ? '' : String(v)])) : { type: defaultType, currency: 'SEK', region: 'Norden', ...Object.fromEntries(Object.entries(prefill ?? {}).filter(([, v]) => v)) },
   );
   const [error, setError] = useState<string | null>(null);
+  const [ms, setMs] = useState<{ sec_id: string; listing: string } | null>(null);
+  const [msBusy, setMsBusy] = useState(false);
+  const [msNote, setMsNote] = useState<string | null>(null);
+  const fromMorningstar = async () => {
+    setMsBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ fields: Record<string, string | null>; ms: { sec_id: string; listing: string } }>('/morningstar/describe', { isin: d.isin, type: initial ? d.type : undefined, currency: initial ? d.currency : undefined });
+      const filled = Object.entries(r.fields).filter(([k, v]) => v && (k === 'type' ? !initial : !d[k]));
+      setD((x) => ({ ...x, ...Object.fromEntries(filled.map(([k, v]) => [k, String(v)])) }));
+      setMs(r.ms);
+      setMsNote(`Från Morningstar: ${filled.map(([k]) => k).length} fält ifyllda · listning ${r.ms.listing}. Kontrollera innan du sparar.`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setMsBusy(false);
+    }
+  };
   const set = (k: string) => (e: { target: { value: string } }) => setD((x) => ({ ...x, [k]: e.target.value }));
   const t = d.type as InstrumentType;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     try {
-      if (initial) await api.put(`/instruments/${initial.id}`, d);
-      else {
+      if (initial) {
+        await api.put(`/instruments/${initial.id}`, d);
+        if (ms) await api.put(`/instruments/${initial.id}/morningstar`, ms);
+      } else {
         const r = await api.post<{ id: number }>('/instruments', d);
+        if (ms) await api.put(`/instruments/${r.id}/morningstar`, ms);
         onSaved?.(r.id);
       }
       bump();
@@ -61,7 +82,13 @@ export default function InstrumentForm({ initial, onClose, defaultType = 'EQUITY
         </label>
         <label className="field">Valuta<input value={d.currency ?? ''} onChange={set('currency')} maxLength={3} required style={{ textTransform: 'uppercase' }} /></label>
         <label className="field full">Namn<input value={d.name ?? ''} onChange={set('name')} required /></label>
-        <label className="field">ISIN<input value={d.isin ?? ''} onChange={set('isin')} maxLength={12} style={{ textTransform: 'uppercase' }} /></label>
+        <label className="field">ISIN
+          <span className="row" style={{ flexWrap: 'nowrap' }}>
+            <input value={d.isin ?? ''} onChange={set('isin')} maxLength={12} style={{ textTransform: 'uppercase', flex: 1, minWidth: 0 }} />
+            {d.type !== 'PE_FUND' && <button type="button" className="btn small" disabled={msBusy || !/^[A-Za-z]{2}[A-Za-z0-9]{9}\d$/.test(d.isin ?? '')} onClick={fromMorningstar} title="Hämta namn, valuta, bransch/kategori och koppling från Morningstar">{msBusy ? 'Hämtar …' : 'Morningstar'}</button>}
+          </span>
+        </label>
+        {msNote && <div className="alert ok full" style={{ margin: 0 }}>{msNote}</div>}
         {t !== 'PE_FUND' && <label className="field">Ticker<input value={d.ticker ?? ''} onChange={set('ticker')} /></label>}
         <label className="field">Land (ISO)<input value={d.country ?? ''} onChange={set('country')} maxLength={2} style={{ textTransform: 'uppercase' }} /></label>
         <label className="field">Tillgångsslag
