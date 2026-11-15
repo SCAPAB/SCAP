@@ -2,7 +2,13 @@
 
 Portföljsystem för institutionella investerare. Det samlar direktägda aktier, aktie- och räntefonder samt private equity-fonder för flera juridiska enheter i en och samma vy.
 
-## Kom igång
+## Kör i GitHub Codespaces (ingen installation)
+
+I repot på GitHub: **Code → Codespaces → Create codespace on main**. Codespacet installerar allt, skapar demodata och startar programmet. En webbläsarflik öppnas med inloggningssidan (port 5173). Logga in med `admin@innehav.local` / `innehav`.
+
+Dela en länk med en kollega: gå till fliken **Ports** i Codespaces, högerklicka på port 5173 och välj **Port Visibility → Private to Organization**.
+
+## Kom igång lokalt
 
 ```bash
 npm install

@@ -1,0 +1,14 @@
+{
+  "name": "Innehav",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "postCreateCommand": "npm install && npm run demo",
+  "postAttachCommand": "npm run dev:demo",
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": { "label": "Innehav", "onAutoForward": "openBrowser" },
+    "3001": { "label": "API", "onAutoForward": "silent" }
+  },
+  "customizations": {
+    "codespaces": { "openFiles": ["README.md"] }
+  }
+}

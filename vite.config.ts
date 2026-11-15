@@ -5,5 +5,5 @@ export default defineConfig({
   root: 'client',
   plugins: [react()],
   build: { outDir: '../dist', emptyOutDir: true },
-  server: { port: 5173, proxy: { '/api': 'http://localhost:3001' } },
+  server: { port: 5173, host: true, allowedHosts: ['.app.github.dev', 'localhost'], proxy: { '/api': 'http://localhost:3001' } },
 });
