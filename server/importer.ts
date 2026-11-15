@@ -5,8 +5,8 @@
 import Papa from 'papaparse';
 import { db, all, run } from './db.ts';
 import { HttpError } from './auth.ts';
-import { validateInstrument, validateTransaction, isDate, num } from './validate.ts';
-import type { Entity, Instrument, TxType } from '../shared/types.ts';
+import { validateInstrument, validateTransaction, insertTransaction, displayAmount, isDate, num } from './validate.ts';
+import { TX_LABELS, type Entity, type Instrument, type TxType } from '../shared/types.ts';
 
 export const IMPORT_KINDS = {
   transactions: {
@@ -94,10 +94,14 @@ export function importCsv(kind: string, csv: string, opts: { dryRun: boolean; us
             const v = validateTransaction({
               entity_id: e.id, instrument_id: ins.id, type, trade_date: r.datum?.trim(), settle_date: r.likviddag?.trim(),
               quantity: r.antal, price: r.kurs, amount: r.belopp, fee: r.avgift, fx_rate: r.valutakurs, note: r.notering,
+              outside_commitment: r['utjämningsränta'], recallable: r['återinkallningsbart'],
             });
-            run('INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-              v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, opts.userId);
-            preview = { rad: line, datum: v.trade_date, enhet: e.name, instrument: ins.name, typ: v.type, antal: v.quantity, kurs: v.price, belopp: v.amount, valuta: ins.currency, valutakurs: v.fx_rate };
+            insertTransaction(v, opts.userId);
+            preview = {
+              rad: line, datum: v.trade_date, enhet: e.name, instrument: ins.name, typ: TX_LABELS[v.type], antal: v.quantity, kurs: v.price,
+              belopp: displayAmount(v), avgift: v.fee, valuta: ins.currency, valutakurs: v.fx_rate,
+              kursdatum: ins.currency === 'SEK' ? '' : v.fx_date ?? 'angiven',
+            };
             break;
           }
           case 'prices': {

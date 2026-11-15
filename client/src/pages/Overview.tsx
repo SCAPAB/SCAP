@@ -17,6 +17,7 @@ interface OverviewData {
   top: { id: number; name: string; type: InstrumentType; value: number; weight: number }[];
   allocations: Allocations;
   staleData: { id: number; name: string; lastDate: string | null; kind: string }[];
+  fxIssues: { currency: string; level: 'error' | 'warning'; lastDate: string | null; message: string; instruments: { id: number; name: string }[] }[];
 }
 
 export default function Overview() {
@@ -35,13 +36,21 @@ export default function Overview() {
           <p>Portföljens värde per {data.asOf}, i SEK.</p>
         </div>
       </div>
-      {data.staleData.length > 0 && (
+      {data.fxIssues.filter((f) => f.level === 'error').map((f) => (
+        <div key={f.currency} className="alert error">
+          <strong>{f.message}</strong>{' '}
+          Gäller {f.instruments.slice(0, 5).map((i, k) => <span key={i.id}>{k > 0 && ', '}<Link to={`/instrument/${i.id}`}>{i.name}</Link></span>)}
+          {f.instruments.length > 5 && ` och ${f.instruments.length - 5} till`}. <Link to="/marknadsdata">Registrera valutakurs</Link>
+        </div>
+      ))}
+      {data.staleData.length + data.fxIssues.filter((f) => f.level === 'warning').length > 0 && (
         <div className="alert">
           <strong>Inaktuell värdering:</strong>{' '}
           {data.staleData.slice(0, 5).map((s, i) => (
             <span key={s.id}>{i > 0 && ', '}<Link to={`/instrument/${s.id}`}>{s.name}</Link> ({s.kind} {s.lastDate ?? 'saknas'})</span>
           ))}
           {data.staleData.length > 5 && ` och ${data.staleData.length - 5} till`}
+          {data.fxIssues.filter((f) => f.level === 'warning').map((f, i) => <span key={f.currency}>{(i > 0 || data.staleData.length > 0) && ', '}valutakurs {f.currency} {f.lastDate}</span>)}
         </div>
       )}
       <div className="kpis">

@@ -126,7 +126,11 @@ export interface SeriesPoint {
   date: string;
   value: number;      // marknadsvärde SEK
   netInvested: number; // ackumulerat nettoinvesterat SEK
-  index: number;      // tidsviktad avkastning, start = 100
+  index: number;      // tidsviktad avkastning, start = 100 (NaN/null om värdet inte kunde beräknas)
+  /** false om något värde sedan föregående punkt saknades (t.ex. valutakurs) – avkastningen är då okänd */
+  complete?: boolean;
+  /** true om portföljen hade kapital att avkasta någon gång sedan föregående punkt */
+  invested?: boolean;
 }
 
 export interface PeriodReturn {

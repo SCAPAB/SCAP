@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { all, get, run, audit } from './db.ts';
 import { HttpError, requireRole } from './auth.ts';
 import { cached, parseDate, parseEntities, portfolioData, today } from './data.ts';
-import { TA_DEFAULTS, addDays, peHolding, periodReturns, snapshot, taForecast, totalValue, valueSeries, xirrSafe } from './calc.ts';
+import { TA_DEFAULTS, addDays, peHolding, periodReturns, snapshot, taForecast, valuedTotal, valueSeries, xirrSafe } from './calc.ts';
 import { ASSET_CLASSES, type AssetClass, type Instrument, type Transaction } from '../shared/types.ts';
 
 export const portfolioRoutes = Router();
@@ -31,12 +31,14 @@ portfolioRoutes.get('/portfolio/allocation', (req, res) => {
   for (const h of s.listed) {
     const i = byId.get(h.instrumentId)!;
     const r = find(i.asset_class);
+    if (!isFinite(h.mvBase)) continue; // saknad valutakurs – flaggas på Översikt
     r.value += h.mvBase;
     r.subs.set(i.sub_class ?? 'Övrigt', (r.subs.get(i.sub_class ?? 'Övrigt') ?? 0) + h.mvBase);
   }
   for (const h of s.pe) {
     const i = byId.get(h.instrumentId)!;
     const r = find(i.asset_class);
+    if (!isFinite(h.navBase)) continue;
     r.value += h.navBase;
     r.uncalled += h.uncalledBase;
     r.subs.set(i.sub_class ?? 'Övrigt', (r.subs.get(i.sub_class ?? 'Övrigt') ?? 0) + h.navBase);
@@ -93,7 +95,7 @@ portfolioRoutes.get('/portfolio/performance', (req, res) => {
     const rowFor = (label: string, key: string, ids: Set<number> | null) => {
       const sub = ids ? { ...data, instruments: data.instruments.filter((i) => ids.has(i.id)), transactions: data.transactions.filter((t) => ids.has(t.instrument_id)) } : data;
       const series = valueSeries(sub, from, asOf, 7);
-      const value = totalValue(snapshot(sub, asOf));
+      const value = valuedTotal(snapshot(sub, asOf)).value;
       const priv = sub.instruments.filter((i) => i.type === 'PE_FUND');
       let irr: number | null = null;
       if (priv.length) {

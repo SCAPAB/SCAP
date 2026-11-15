@@ -161,3 +161,46 @@ test('en juridisk enhet: dokument som anger annan investerare kräver bekräftel
   const ours = matchEntity('Lantbrukarnas Ekonomi AB (Investor No. 0117)', null, null, one);
   assert.equal(ours.confirmed, true);
 });
+
+// ---------------------------------------------------------------------------
+// Fynd 4: negativa belopp och antal 0 ska spärras i Inkorgen
+// ---------------------------------------------------------------------------
+
+const setField = (id: number, k: string, value: unknown) => {
+  const p = db.get<import('./proposals.ts').ProposalRow>('SELECT * FROM proposals WHERE id=?', id)!;
+  const f = JSON.parse(p.fields);
+  f[k] = { ...f[k], value, edited: true };
+  db.run('UPDATE proposals SET fields=? WHERE id=?', JSON.stringify(f), id);
+  return db.get<import('./proposals.ts').ProposalRow>('SELECT * FROM proposals WHERE id=?', id)!;
+};
+
+test('fynd 4: negativt kapitalanrop spärras', () => {
+  const [p0] = newDoc([item({ kind: 'CALL', instrument_name: F('Nordic Buyout Partners IV'), investor_label: F('Alfa AB'), date: F('2025-11-02'), currency: F('SEK'), amount: F(500_000) })]);
+  const p = setField(p0.id, 'amount', -500_000);
+  const ev = P.evaluate(p, p.document_id);
+  assert.ok(ev.blocking.some((b) => /negativ|större än 0/.test(b)), ev.blocking.join(' | '));
+  assert.throws(() => P.approve(p.id, null, { acknowledgeWarnings: true }));
+  assert.equal(db.get<{ n: number }>("SELECT COUNT(*) n FROM transactions WHERE type='CALL' AND trade_date='2025-11-02'")!.n, 0);
+});
+
+test('fynd 4: köp med antal 0 spärras och ändrar inte GAV', () => {
+  const [p0] = newDoc([item({ kind: 'BUY', isin: F('SE0000000001'), investor_label: F('Beta Stiftelse'), date: F('2025-11-03'), currency: F('SEK'), quantity: F(10), price: F(500), amount: F(5_000) })]);
+  const p = setField(p0.id, 'quantity', 0);
+  const ev = P.evaluate(p, p.document_id);
+  assert.ok(ev.blocking.some((b) => /Antal/.test(b)), ev.blocking.join(' | '));
+  assert.throws(() => P.approve(p.id, null, { acknowledgeWarnings: true }));
+});
+
+test('fynd 4: avgift större än totalbeloppet i ett kapitalanrop spärras', () => {
+  const [p] = newDoc([item({ kind: 'CALL', instrument_name: F('Nordic Buyout Partners IV'), investor_label: F('Alfa AB'), date: F('2025-11-04'), currency: F('SEK'), amount: F(10_000), fee: F(12_000) })]);
+  assert.ok(P.evaluate(p, p.document_id).blocking.some((b) => /Avgift/.test(b)));
+});
+
+test('fynd 3/4: bakdaterad försäljning i Inkorgen kontrolleras mot senare försäljningar', () => {
+  // Beta har 100 + 50 + 25 st (köp i tidigare tester). Sälj hela innehavet per 2025-12-01 …
+  const held = db.get<{ q: number }>("SELECT SUM(CASE type WHEN 'BUY' THEN quantity ELSE -quantity END) q FROM transactions WHERE entity_id=2 AND instrument_id=2")!.q;
+  db.run("INSERT INTO transactions (entity_id, instrument_id, type, trade_date, quantity, price, amount) VALUES (2, 2, 'SELL', '2025-12-01', ?, 10, ?)", held, held * 10);
+  // … då kan inget säljas per ett tidigare datum
+  const [p] = newDoc([item({ kind: 'SELL', isin: F('SE0000000001'), investor_label: F('Beta Stiftelse'), date: F('2025-07-01'), currency: F('SEK'), quantity: F(10), price: F(11), amount: F(110) })]);
+  assert.ok(P.evaluate(p, p.document_id).blocking.some((b) => b.includes('överstiger innehavet')));
+});

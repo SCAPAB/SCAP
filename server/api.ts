@@ -4,8 +4,8 @@ import { HttpError, authenticate, hashPassword, login, logout, requireRole } fro
 import {
   bumpVersion, cached, entities, getMarket, instruments, parseDate, parseEntities, portfolioData, today,
 } from './data.ts';
-import { allocate, peHolding, listedHolding, periodReturns, snapshot, valueSeries, addDays, sumListed, sumPe, stripPe, portfolioIrrBase } from './calc.ts';
-import { validateInstrument, validateTransaction, isDate, num } from './validate.ts';
+import { allocate, peHolding, listedHolding, periodReturns, snapshot, valueSeries, addDays, sumListed, sumPe, stripPe, portfolioIrrBase, valuedTotal, sumFinite } from './calc.ts';
+import { validateInstrument, validateTransaction, assertPositions, fxMissingMessage, insertTransaction, isDate, num } from './validate.ts';
 import { importCsv, IMPORT_KINDS } from './importer.ts';
 import { toCsv } from './csv.ts';
 import { docs } from './documents.ts';
@@ -173,37 +173,46 @@ api.get('/transactions', (req, res) => {
 
 api.post('/transactions', editor, (req, res) => {
   const v = validateTransaction(req.body ?? {});
-  const r = run(
-    'INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-    v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, uid(req),
-  );
-  audit(uid(req), 'create', 'transaction', r.lastInsertRowid, v);
+  const id = insertTransaction(v, uid(req));
+  audit(uid(req), 'create', 'transaction', id, v);
   bumpVersion();
-  res.status(201).json({ id: Number(r.lastInsertRowid) });
+  res.status(201).json({ id, fx_rate: v.fx_rate, fx_date: v.fx_date });
 });
 
 api.put('/transactions/:id', editor, (req, res) => {
   const id = Number(req.params.id);
-  const cur = get('SELECT * FROM transactions WHERE id=?', id);
+  const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
   if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
-  const v = validateTransaction({ ...req.body, id });
+  const v = validateTransaction(req.body ?? {}, { replaceId: id });
+  // Ett köp som flyttas till en annan enhet eller ett annat instrument får inte lämna försäljningar utan täckning
+  if (cur.type === 'BUY' && (cur.entity_id !== v.entity_id || cur.instrument_id !== v.instrument_id)) assertPositions(cur.entity_id, cur.instrument_id, { remove: [id] }, 'Kan inte flytta köpet: ');
   run(
-    'UPDATE transactions SET entity_id=?,instrument_id=?,type=?,trade_date=?,settle_date=?,quantity=?,price=?,amount=?,fee=?,fx_rate=?,note=? WHERE id=?',
-    v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, id,
+    'UPDATE transactions SET entity_id=?,instrument_id=?,type=?,trade_date=?,settle_date=?,quantity=?,price=?,amount=?,fee=?,fx_rate=?,note=?,outside_commitment=?,recallable=? WHERE id=?',
+    v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, v.outside_commitment, v.recallable, id,
   );
   audit(uid(req), 'update', 'transaction', id, { before: cur, after: v });
   bumpVersion();
-  res.json({ ok: true });
+  res.json({ ok: true, fx_rate: v.fx_rate, fx_date: v.fx_date });
 });
 
 api.delete('/transactions/:id', editor, (req, res) => {
   const id = Number(req.params.id);
-  const cur = get('SELECT * FROM transactions WHERE id=?', id);
+  const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
   if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
+  if (cur.type === 'BUY') assertPositions(cur.entity_id, cur.instrument_id, { remove: [id] }, 'Kan inte ta bort köpet: ');
   run('DELETE FROM transactions WHERE id=?', id);
   audit(uid(req), 'delete', 'transaction', id, cur);
   bumpVersion();
   res.json({ ok: true });
+});
+
+/** Valutakurs som skulle användas automatiskt för en affär (visas i formuläret med kursens datum). */
+api.get('/fx-lookup', (req, res) => {
+  const c = String(req.query.currency ?? '').toUpperCase();
+  const d = String(req.query.date ?? '');
+  if (!/^[A-Z]{3}$/.test(c) || !isDate(d)) throw new HttpError(400, 'Ange valuta och datum');
+  const r = getMarket().fxForTrade(c, d);
+  res.json(r ? { rate: r.value, date: r.date } : { rate: null, date: null, message: fxMissingMessage(c, d) });
 });
 
 // ---------------------------------------------------------------------------
@@ -280,10 +289,11 @@ function enrichedSnapshot(ents: number[] | null, asOf: string, includeClosed = f
     const data = portfolioData(ents);
     const s = snapshot(data, asOf, { includeClosed });
     const byId = new Map(data.instruments.map((i) => [i.id, i]));
-    const total = s.listed.reduce((a, h) => a + h.mvBase, 0) + s.pe.reduce((a, h) => a + h.navBase, 0);
+    // Innehav utan valutakurs ingår inte i totalen (de flaggas i fxIssues); vikten blir då okänd (NaN → "–")
+    const { value: total, unvalued } = valuedTotal(s);
     const listed: Enriched<ListedHolding>[] = s.listed.map((h) => ({ ...h, instrument: byId.get(h.instrumentId)!, weight: total ? h.mvBase / total : 0 }));
     const pe: Enriched<PeHolding>[] = s.pe.map((h) => ({ ...h, instrument: byId.get(h.instrumentId)!, weight: total ? h.navBase / total : 0 }));
-    return { listed, pe, total };
+    return { listed, pe, total, unvaluedCount: unvalued.length };
   });
 }
 
@@ -304,7 +314,7 @@ function allocations(ents: number[] | null, asOf: string, filter?: InstrumentTyp
   const rows = [
     ...s.listed.map((h) => ({ i: h.instrument, v: h.mvBase })),
     ...s.pe.map((h) => ({ i: h.instrument, v: h.navBase })),
-  ].filter((r) => (!filter || filter.includes(r.i.type)) && (!ac || r.i.asset_class === ac));
+  ].filter((r) => isFinite(r.v) && (!filter || filter.includes(r.i.type)) && (!ac || r.i.asset_class === ac));
   const out: Record<string, { label: string; rows: ReturnType<typeof allocate> }> = {};
   for (const [k, d] of Object.entries(DIMENSIONS)) out[k] = { label: d.label, rows: allocate(rows.map((r) => ({ key: d.key(r.i), value: r.v }))) };
   return out;
@@ -319,13 +329,13 @@ api.get('/portfolio/overview', (req, res) => {
     const first = data.transactions.reduce((m, t) => (t.trade_date < m ? t.trade_date : m), asOf);
     const from = first < addDays(asOf, -365 * 5) ? addDays(asOf, -365 * 5) : first;
     const series = valueSeries(data, from, asOf, 7);
-    const sum = <T>(a: T[], f: (x: T) => number) => a.reduce((x, y) => x + f(y), 0);
+    const sum = sumFinite;
     const listedMv = sum(s.listed, (h) => h.mvBase);
     const peNav = sum(s.pe, (h) => h.navBase);
     const top = [
       ...s.listed.map((h) => ({ id: h.instrumentId, name: h.instrument.name, type: h.instrument.type, value: h.mvBase, weight: h.weight })),
       ...s.pe.map((h) => ({ id: h.instrumentId, name: h.instrument.name, type: h.instrument.type, value: h.navBase, weight: h.weight })),
-    ].sort((a, b) => b.value - a.value).slice(0, 10);
+    ].sort((a, b) => (isFinite(b.value) ? b.value : -Infinity) - (isFinite(a.value) ? a.value : -Infinity)).slice(0, 10);
     const ytdStart = `${Number(asOf.slice(0, 4)) - 1}-12-31`;
     const ytdBase = [...series].reverse().find((p) => p.date <= ytdStart) ?? series[0];
     const last = series[series.length - 1];
@@ -345,16 +355,47 @@ api.get('/portfolio/overview', (req, res) => {
         ytdNetFlows: ytdFlows.reduce((a, t) => a + (t.type === 'BUY' || t.type === 'CALL' ? (t.amount + t.fee) * t.fx_rate : t.type === 'SELL' || t.type === 'DISTRIBUTION' ? -(t.amount - t.fee) * t.fx_rate : 0), 0),
         ytdDividends: ytdFlows.filter((t) => t.type === 'DIVIDEND').reduce((a, t) => a + (t.amount - t.fee) * t.fx_rate, 0),
         holdingsCount: s.listed.length + s.pe.length,
+        unvaluedCount: s.unvaluedCount,
       },
       series: series.map((p) => ({ ...p })),
       returns: periodReturns(series, asOf),
       top,
       allocations: allocations(ents, asOf),
       staleData: staleness(asOf),
+      fxIssues: fxIssues(ents, asOf),
     };
   });
   res.json(result);
 });
+
+/**
+ * Valutor som saknar kurs (innehavet kan inte värderas) eller har en inaktuell kurs per datum.
+ * Saknad kurs är ett fel: innehaven ingår inte i marknadsvärdet och avkastningen kan inte beräknas.
+ */
+function fxIssues(ents: number[] | null, asOf: string) {
+  const m = getMarket();
+  const s = enrichedSnapshot(ents, asOf);
+  const byCcy = new Map<string, { id: number; name: string }[]>();
+  for (const h of [...s.listed, ...s.pe]) {
+    const c = h.instrument.currency;
+    if (c === 'SEK') continue;
+    byCcy.set(c, [...(byCcy.get(c) ?? []), { id: h.instrumentId, name: h.instrument.name }]);
+  }
+  const out: { currency: string; level: 'error' | 'warning'; lastDate: string | null; message: string; instruments: { id: number; name: string }[] }[] = [];
+  for (const [c, list] of byCcy) {
+    const r = m.fxAsOf(c, asOf);
+    const first = m.fxFirstDate(c);
+    if (!r) {
+      out.push({
+        currency: c, level: 'error', lastDate: null, instruments: list,
+        message: `${c} saknar valutakurs per ${asOf}${first ? ` (första registrerade kurs är från ${first})` : ''}. ${list.length === 1 ? 'Innehavet' : `De ${list.length} innehaven`} kan inte värderas och ingår inte i marknadsvärdet, och avkastningen kan inte beräknas.`,
+      });
+    } else if (r.date < addDays(asOf, -7)) {
+      out.push({ currency: c, level: 'warning', lastDate: r.date, instruments: list, message: `Valutakursen för ${c} är från ${r.date}.` });
+    }
+  }
+  return out;
+}
 
 /** Varnar för instrument med inaktuella kurser/NAV – viktigt för värderingskvalitet. */
 function staleness(asOf: string) {
@@ -378,7 +419,7 @@ api.get('/portfolio/holdings', (req, res) => {
   const ok = (i: Instrument) => (!type || i.type === type) && (!ac || i.asset_class === ac);
   const listed = s.listed.filter((h) => ok(h.instrument));
   const pe = s.pe.filter((h) => ok(h.instrument));
-  const sum = <T>(a: T[], f: (x: T) => number) => a.reduce((x, y) => x + f(y), 0);
+  const sum = sumFinite;
   const peAll = sum(pe, (h) => h.paidInBase);
   const value = sum(listed, (h) => h.mvBase) + sum(pe, (h) => h.navBase);
   const policy = ac ? get<{ target: number; min: number; max: number }>('SELECT target, min, max FROM policy_targets WHERE asset_class=?', ac) : null;

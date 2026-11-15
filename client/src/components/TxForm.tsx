@@ -12,7 +12,7 @@ export default function TxForm({ initial, instrumentId, onClose }: { initial?: T
   const { data: instruments } = useFetch<Instrument[]>('/instruments');
   const [d, setD] = useState<Draft>(() =>
     initial
-      ? Object.fromEntries(Object.entries(initial).map(([k, v]) => [k, v == null ? '' : String(v)]))
+      ? Object.fromEntries(Object.entries(initial).map(([k, v]) => [k, v == null ? '' : String(k === 'amount' && initial.type === 'CALL' ? initial.amount + initial.fee : v)]))
       : {
         entity_id: String(entities[0]?.id ?? ''),
         instrument_id: instrumentId ? String(instrumentId) : '',
@@ -57,9 +57,9 @@ export default function TxForm({ initial, instrumentId, onClose }: { initial?: T
 
   const amountLabel: Record<string, string> = {
     BUY: 'Likvidbelopp (antal × kurs)', SELL: 'Likvidbelopp (antal × kurs)', DIVIDEND: 'Bruttoutdelning', FEE: 'Avgiftsbelopp',
-    COMMITMENT: 'Åtagandebelopp', CALL: 'Anropat belopp', DISTRIBUTION: 'Utdelat belopp',
+    COMMITMENT: 'Åtagandebelopp', CALL: 'Totalt anropat belopp (enligt avin)', DISTRIBUTION: 'Utdelat belopp (brutto)',
   };
-  const feeLabel = d.type === 'DIVIDEND' ? 'Källskatt' : d.type === 'BUY' || d.type === 'SELL' ? 'Courtage' : 'Avgift';
+  const feeLabel = d.type === 'DIVIDEND' ? 'Källskatt' : d.type === 'BUY' || d.type === 'SELL' ? 'Courtage' : d.type === 'CALL' ? 'Varav avgifter' : d.type === 'DISTRIBUTION' ? 'Avdrag/källskatt' : 'Avgift';
 
   return (
     <Modal

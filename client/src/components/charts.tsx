@@ -18,7 +18,8 @@ type Mode = 'value' | 'index';
 /** Värdeutveckling: marknadsvärde mot nettoinvesterat, eller tidsviktad avkastning (index). */
 export function ValueChart({ series, mode }: { series: SeriesPoint[]; mode: Mode }) {
   if (!series.length) return <div className="empty">Ingen historik</div>;
-  const data = series.map((p) => ({ ...p, ret: p.index / 100 - 1 }));
+  // Punkter som inte kunde värderas (saknad valutakurs) visas som glapp, inte som 0
+  const data = series.map((p) => ({ ...p, ret: p.index == null || !isFinite(p.index) ? null : p.index / 100 - 1 }));
   return (
     <div className="chart" style={{ height: 300 }}>
       <ResponsiveContainer>

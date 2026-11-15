@@ -115,3 +115,41 @@ test('PE: utjämningsränta utanför åtagandet och återinkallningsbar utdelnin
   close(h.uncalled, 1_000 - 315 + 40);
   close(h.nav, 300 - 100);
 });
+
+// ---------------------------------------------------------------------------
+// Granskningsfynd
+// ---------------------------------------------------------------------------
+
+test('fynd 1: saknad valutakurs ger saknat värde för innehavet och ingen avkastning (inte 0 %)', () => {
+  const m = new Market({
+    prices: [{ instrument_id: 1, date: '2024-01-01', price: 100 }, { instrument_id: 1, date: '2024-03-01', price: 110 }, { instrument_id: 2, date: '2024-01-01', price: 10 }],
+    fx: [], valuations: [],
+  });
+  const txs = [
+    tx({ type: 'BUY', quantity: 10, price: 100, amount: 1_000, trade_date: '2024-01-01' }),
+    tx({ instrument_id: 2, type: 'BUY', quantity: 10, price: 10, amount: 100, fx_rate: 10, trade_date: '2024-01-01' }),
+  ];
+  const data = { instruments: [ins({}), ins({ id: 2, currency: 'USD' })], transactions: txs, market: m };
+  const s = snapshot(data, '2024-03-01');
+  const usd = s.listed.find((h) => h.instrumentId === 2)!;
+  assert.ok(Number.isNaN(usd.mvBase), 'USD-innehavet kan inte värderas');
+  const series = valueSeries(data, '2024-01-01', '2024-03-01', 7);
+  assert.equal(periodReturns(series, '2024-03-01').find((p) => p.key === 'ALL')!.value, null);
+});
+
+test('fynd 2: valutakurs från ett senare datum används aldrig', () => {
+  const m = new Market({ prices: [], fx: [{ currency: 'USD', date: '2024-06-01', rate: 10 }], valuations: [] });
+  assert.ok(Number.isNaN(m.fxRate('USD', '2024-01-01')));
+  assert.equal(m.fxRate('USD', '2024-06-03'), 10);
+});
+
+test('fynd 3: försäljning större än innehavet ger bara intäkt för sålt antal', () => {
+  const m = new Market({ prices: [], fx: [], valuations: [] });
+  const txs = [
+    tx({ type: 'BUY', quantity: 100, price: 1_000, amount: 100_000, trade_date: '2025-01-10' }),
+    tx({ type: 'SELL', quantity: 150, price: 1_200, amount: 180_000, trade_date: '2025-03-01' }),
+  ];
+  const h = listedHolding(ins({}), 1, txs, m, '2025-06-30');
+  close(h.quantity, 0);
+  close(h.realizedBase, 20_000);
+});

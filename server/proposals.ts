@@ -10,7 +10,8 @@ import { matchInstrument, matchEntity, learnAlias, labelMatchesEntity, type Matc
 export { nameScore } from './matching.ts';
 import { HttpError } from './auth.ts';
 import { getMarket, bumpVersion } from './data.ts';
-import { listedHolding, peHolding, addDays } from './calc.ts';
+import { listedHolding, peHolding, addDays, findOversell } from './calc.ts';
+import { validateTransaction, insertTransaction, fxMissingMessage } from './validate.ts';
 import type { ExtractionT } from './ai.ts';
 import type { Entity, Instrument, InstrumentType, Transaction } from '../shared/types.ts';
 
@@ -205,6 +206,11 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
   const ins = p.instrument_id ? get<Instrument>('SELECT * FROM instruments WHERE id=?', p.instrument_id) : undefined;
   const ent = p.entity_id ? get<Entity>('SELECT * FROM entities WHERE id=?', p.entity_id) : undefined;
 
+  const amount = num(fields.amount);
+  const fee = num(fields.fee) ?? 0;
+  const qty = num(fields.quantity);
+  const price = num(fields.price);
+
   // Grundkrav
   if (!ent) checks.push({ level: 'error', code: 'entity', message: 'Välj juridisk enhet' });
   if (!ins) checks.push({ level: 'error', code: 'instrument', message: 'Välj instrument (eller skapa ett nytt)' });
@@ -240,8 +246,19 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
     checks.push({ level: 'warning', code: 'future', message: `Datumet ${date} ligger i framtiden` });
   }
   for (const f of Object.keys(fields)) {
-    if (NUMERIC.has(f) && fields[f].value != null && fields[f].value !== '' && !isFinite(Number(fields[f].value))) checks.push({ level: 'error', code: `nan_${f}`, message: `${LABELS[f] ?? f} är inte ett tal` });
+    if (!NUMERIC.has(f) || fields[f].value == null || fields[f].value === '') continue;
+    const v = Number(fields[f].value);
+    if (!isFinite(v)) checks.push({ level: 'error', code: `nan_${f}`, message: `${LABELS[f] ?? f} är inte ett tal` });
+    else if (v < 0) checks.push({ level: 'error', code: `neg_${f}`, message: `${LABELS[f] ?? f} får inte vara negativt (${fmt(v, 2)})` });
   }
+  // Belopp, antal och kurs som bokförs måste vara större än 0 (samma krav som vid manuell registrering)
+  const positive = (k: string, label = LABELS[k] ?? k) => {
+    const v = num(fields[k]);
+    if (v != null && isFinite(v) && v === 0) checks.push({ level: 'error', code: `zero_${k}`, message: `${label} måste vara större än 0` });
+  };
+  if (TX_KINDS.includes(kind)) positive('amount');
+  if (kind === 'BUY' || kind === 'SELL') { positive('quantity'); positive('price'); }
+  if (kind === 'PRICE') positive('price');
   // Osäkra AI-värden måste bekräftas eller ändras
   const unsure = Object.entries(fields).filter(([, f]) => f.confidence === 'low' && !f.edited && !f.confirmed && f.value != null);
   for (const [k] of unsure) checks.push({ level: 'error', code: `confirm_${k}`, message: `Bekräfta osäkert AI-värde: ${LABELS[k] ?? k}` });
@@ -256,17 +273,14 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
     else checks.push({ level: 'warning', code: 'investor', message: `Dokumentet gäller "${inv}" – kontrollera att ${ent.name} är rätt enhet` });
   }
 
-  const amount = num(fields.amount);
-  const fee = num(fields.fee) ?? 0;
-  const qty = num(fields.quantity);
-  const price = num(fields.price);
 
-  // Valutakurs
-  if (ins && ins.currency !== 'SEK' && date && isDate(date) && ['CALL', 'DISTRIBUTION', 'BUY', 'SELL', 'DIVIDEND', 'FEE'].includes(kind)) {
-    const fx = num(fields.fx_rate) ?? getMarket().fxRate(ins.currency, date);
-    if (!isFinite(fx)) checks.push({ level: 'error', code: 'fx', message: `Valutakurs ${ins.currency} saknas – ange den manuellt` });
-    else if (!num(fields.fx_rate)) checks.push({ level: 'info', code: 'fx', message: `Valutakurs ${fmt(fx, 4)} SEK/${ins.currency} hämtas från registrerade kurser` });
+  // Valutakurs: högst 7 dagar före affärsdagen, aldrig en senare kurs
+  if (ins && ins.currency !== 'SEK' && date && isDate(date) && ['CALL', 'DISTRIBUTION', 'BUY', 'SELL', 'DIVIDEND', 'FEE'].includes(kind) && !num(fields.fx_rate)) {
+    const r = getMarket().fxForTrade(ins.currency, date);
+    if (!r) checks.push({ level: 'error', code: 'fx', message: fxMissingMessage(ins.currency, date) });
+    else checks.push({ level: 'info', code: 'fx', message: `Valutakurs ${fmt(r.value, 4)} SEK/${ins.currency} per ${r.date} hämtas från registrerade kurser${r.date < date ? ` (senaste kurs före affärsdagen ${date})` : ''}` });
   }
+  if (kind === 'CALL' && amount != null && fee > amount + 1e-9) checks.push({ level: 'error', code: 'fee_total', message: `Avgifterna (${fmt(fee, 2)}) är större än det totala anropade beloppet (${fmt(amount, 2)}). Belopp ska vara totalt anropat enligt avin, avgift = varav avgifter.` });
 
   // Delposter ska summera till totalen och avgiftsdelen stämma
   if (lines && lines.length && amount != null && (kind === 'CALL' || kind === 'DISTRIBUTION')) {
@@ -362,6 +376,11 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
     } else {
       const before = listedHolding(ins, ent.id, txs, m, date);
       if (kind === 'SELL' && qty != null && qty > before.quantity + 1e-9) checks.push({ level: 'error', code: 'oversell', message: `Försäljningen (${fmt(qty, 4)}) överstiger innehavet per ${date} (${fmt(before.quantity, 4)})` });
+      else if ((kind === 'SELL' || kind === 'BUY') && qty != null && qty > 0) {
+        // Hela tidslinjen: en bakdaterad försäljning får inte göra en senare försäljning omöjlig
+        const bad = findOversell([...txs, { id: Number.MAX_SAFE_INTEGER, trade_date: date, type: kind, quantity: qty }]);
+        if (bad) checks.push({ level: 'error', code: 'oversell', message: `Försäljningen ${bad.date} (${fmt(bad.quantity, 4)} st) överstiger innehavet (${fmt(bad.held, 4)} st) per den dagen` });
+      }
       if (kind === 'HOLDING' && qty != null) {
         const diff = qty - before.quantity;
         if (Math.abs(diff) < 1e-6) checks.push({ level: 'ok', code: 'reconcile', message: `Antal stämmer med bokfört innehav (${fmt(before.quantity, 4)})` });
@@ -387,21 +406,40 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
     }
   }
 
+  // Sista kontroll: samma validering som vid manuell registrering
+  if (TX_KINDS.includes(kind) && ins && ent && date && isDate(date) && !checks.some((c) => c.level === 'error')) {
+    try {
+      validateTransaction(txBody(p, fields));
+    } catch (e) {
+      checks.push({ level: 'error', code: 'validate', message: (e as Error).message });
+    }
+  }
+
   const blocking = checks.filter((c) => c.level === 'error').map((c) => c.message);
   return { checks, preview, blocking, canApprove: blocking.length === 0 && p.status === 'pending', needsAck: checks.some((c) => c.level === 'warning') };
 }
 
+const TX_KINDS: Kind[] = ['CALL', 'DISTRIBUTION', 'BUY', 'SELL', 'DIVIDEND', 'FEE', 'COMMITMENT'];
+
+/** Förslaget som indata till validateTransaction (kapitalanrop: amount = totalt anropat, fee = varav avgifter). */
+function txBody(p: ProposalRow, f: Record<string, PField>): Record<string, unknown> {
+  return {
+    entity_id: p.entity_id, instrument_id: p.instrument_id, type: p.kind, trade_date: str(f.date), settle_date: str(f.settle_date),
+    quantity: num(f.quantity), price: num(f.price), amount: num(f.amount), fee: num(f.fee), fx_rate: num(f.fx_rate), note: str(f.note),
+    outside_commitment: num(f.outside_commitment), recallable: num(f.recallable),
+  };
+}
+
 /** Transaktionen som skulle skapas (utan att spara). */
 function hypothetical(p: ProposalRow, f: Record<string, PField>, ins: Instrument, entityId: number, date: string): Transaction | null {
-  if (!['CALL', 'DISTRIBUTION', 'BUY', 'SELL', 'DIVIDEND', 'FEE', 'COMMITMENT'].includes(p.kind)) return null;
+  if (!TX_KINDS.includes(p.kind)) return null;
   const amount = num(f.amount);
   const qty = num(f.quantity) ?? 0;
   const price = num(f.price) ?? 0;
   const fee = num(f.fee) ?? 0;
   const amt = amount ?? (p.kind === 'BUY' || p.kind === 'SELL' ? qty * price : null);
   if (amt == null || !isFinite(amt)) return null;
-  let fx = num(f.fx_rate) ?? getMarket().fxRate(ins.currency, date);
-  if (!isFinite(fx)) fx = 1;
+  const fx = num(f.fx_rate) ?? getMarket().fxForTrade(ins.currency, date)?.value ?? 1; // endast förhandsvisning
   // Kapitalanrop: amount i transaktionen = investeringsdelen, fee = avgiftsdelen
   const isCall = p.kind === 'CALL';
   const outside = isCall ? num(f.outside_commitment) ?? 0 : 0;
@@ -438,7 +476,6 @@ export function approve(id: number, userId: number | null, opts: { acknowledgeWa
   }
   const f = JSON.parse(p.fields) as Record<string, PField>;
   const lines = normalizeLines(p.kind, p.line_items ? JSON.parse(p.line_items) : null);
-  const ins = get<Instrument>('SELECT * FROM instruments WHERE id=?', p.instrument_id)!;
   const date = str(f.date)!;
   let ref = '';
   tx(() => {
@@ -460,13 +497,10 @@ export function approve(id: number, userId: number | null, opts: { acknowledgeWa
         ref = `reconciled:${p.entity_id}:${p.instrument_id}:${date}`;
         break;
       default: {
-        const t = hypothetical(p, f, ins, p.entity_id!, date)!;
-        const r = run(
-          'INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by,document_id,details,outside_commitment,recallable) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          t.entity_id, t.instrument_id, t.type, t.trade_date, t.settle_date, t.quantity, t.price, t.amount, t.fee, t.fx_rate,
-          str(f.note), userId, p.document_id, lines ? JSON.stringify(lines) : null, t.outside_commitment ?? 0, t.recallable ?? 0,
-        );
-        ref = `transaction:${r.lastInsertRowid}`;
+        // Samma validering som vid manuell registrering, inklusive innehav över hela tidslinjen
+        const v = validateTransaction(txBody(p, f));
+        const txId = insertTransaction(v, userId, { document_id: p.document_id, details: lines ? JSON.stringify(lines) : null });
+        ref = `transaction:${txId}`;
       }
     }
     run("UPDATE proposals SET status='approved', result_ref=?, decided_by=?, decided_at=datetime('now'), comment=? WHERE id=?", ref, userId, opts.comment ?? null, id);

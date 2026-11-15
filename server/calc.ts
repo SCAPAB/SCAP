@@ -16,6 +16,8 @@ import { xirr } from './xirr.ts';
 export { xirr as xirrSafe };
 
 const EPS = 1e-9;
+/** Hur gammal en automatiskt hämtad valutakurs för en affär får vara (kalenderdagar före affärsdagen). */
+export const FX_TRADE_MAX_DAYS = 7;
 
 // ---------------------------------------------------------------------------
 // Marknadsdata med "senast kända värde per datum"-uppslag
@@ -80,13 +82,33 @@ export class Market {
     return this.prices.get(instrumentId)?.asOf(date) ?? null;
   }
 
-  /** SEK per 1 enhet valuta per datum. Saknas kurs före datum används äldsta kända. */
+  /**
+   * SEK per 1 enhet valuta per datum: senast kända kurs på eller före datum.
+   * En kurs från ett senare datum används aldrig – saknas kurs blir resultatet NaN (= kan inte värderas).
+   */
   fxRate(currency: string, date: string): number {
+    return this.fxAsOf(currency, date)?.value ?? NaN;
+  }
+
+  /** Senast kända valutakurs på eller före datum, med kursens datum. SEK ger alltid 1. */
+  fxAsOf(currency: string, date: string): { date: string; value: number } | null {
     const c = currency.toUpperCase();
-    if (c === 'SEK') return 1;
-    const s = this.fx.get(c);
-    if (!s || s.values.length === 0) return NaN;
-    return s.asOf(date)?.value ?? s.values[0];
+    if (c === 'SEK') return { date, value: 1 };
+    return this.fx.get(c)?.asOf(date) ?? null;
+  }
+
+  /**
+   * Valutakurs för en affär: senast kända kurs högst `maxDays` kalenderdagar före affärsdagen
+   * (helger och helgdagar), aldrig en senare kurs. null = kursen måste anges manuellt.
+   */
+  fxForTrade(currency: string, date: string, maxDays = FX_TRADE_MAX_DAYS): { date: string; value: number } | null {
+    const r = this.fxAsOf(currency, date);
+    return r && r.date >= addDays(date, -maxDays) ? r : null;
+  }
+
+  /** Första registrerade kursdatum för valutan (för felmeddelanden). */
+  fxFirstDate(currency: string): string | null {
+    return this.fx.get(currency.toUpperCase())?.dates[0] ?? null;
   }
 
   nav(entityId: number, instrumentId: number, date: string) {
@@ -114,13 +136,36 @@ function emptyListed(instrumentId: number, entityIds: number[]): ListedHolding {
   };
 }
 
+/** Ordning inom en dag: köp före försäljning, därefter registreringsordning. Samma ordning används i kontrollen av innehav. */
+const DAY_ORDER: Partial<Record<Transaction['type'], number>> = { BUY: 0, SELL: 1 };
+export function sortTx<T extends Pick<Transaction, 'trade_date' | 'type' | 'id'>>(txs: T[]): T[] {
+  return [...txs].sort((a, b) => a.trade_date.localeCompare(b.trade_date) || (DAY_ORDER[a.type] ?? 0) - (DAY_ORDER[b.type] ?? 0) || a.id - b.id);
+}
+
+/**
+ * Första tillfälle då antalet blir negativt (försäljning över innehavet), eller null.
+ * Innehavet kontrolleras vid slutet av varje affärsdag över hela tidslinjen – inte bara per en affärsdag –
+ * så att en bakdaterad försäljning, ett borttaget köp eller ett flyttat datum inte kan skapa ett omöjligt läge.
+ */
+export function findOversell(txs: Pick<Transaction, 'trade_date' | 'type' | 'id' | 'quantity'>[]): { date: string; quantity: number; held: number } | null {
+  let q = 0;
+  for (const t of sortTx(txs)) {
+    if (t.type === 'BUY') q += t.quantity;
+    else if (t.type === 'SELL') {
+      if (t.quantity > q + 1e-6) return { date: t.trade_date, quantity: t.quantity, held: Math.max(0, q) };
+      q -= t.quantity;
+    }
+  }
+  return null;
+}
+
 /** Beräknar en position för EN juridisk enhet i ETT instrument per datum. */
 export function listedHolding(
   instrument: Instrument, entityId: number, txs: Transaction[], market: Market, asOf: string,
 ): ListedHolding {
   const h = emptyListed(instrument.id, [entityId]);
   let lastTradePrice: { date: string; price: number } | null = null;
-  const sorted = txs.filter((t) => t.trade_date <= asOf).sort((a, b) => a.trade_date.localeCompare(b.trade_date) || a.id - b.id);
+  const sorted = sortTx(txs.filter((t) => t.trade_date <= asOf));
   for (const t of sorted) {
     switch (t.type) {
       case 'BUY': {
@@ -132,11 +177,13 @@ export function listedHolding(
         break;
       }
       case 'SELL': {
+        // Försäljning över innehavet ska stoppas vid registrering. Finns det ändå (äldre data) räknas
+        // bara likviden för det antal som faktiskt ägdes som intäkt.
         const q = Math.min(t.quantity, h.quantity);
         const share = h.quantity > EPS ? q / h.quantity : 0;
         const costOutLocal = h.costLocal * share;
         const costOutBase = h.costBase * share;
-        const proceeds = t.amount - t.fee;
+        const proceeds = (t.amount - t.fee) * (t.quantity > EPS ? q / t.quantity : 0);
         h.realizedBase += proceeds * t.fx_rate - costOutBase;
         h.quantity -= q;
         h.costLocal -= costOutLocal;
@@ -350,9 +397,22 @@ export function snapshot(data: PortfolioData, asOf: string, opts: { includeClose
   return { asOf, listed, pe };
 }
 
+/** Portföljens värde i SEK. NaN om något innehav saknar valutakurs – används där ett ofullständigt värde vore fel (TWR). */
 export function totalValue(s: PortfolioSnapshot) {
   return s.listed.reduce((a, h) => a + h.mvBase, 0) + s.pe.reduce((a, h) => a + h.navBase, 0);
 }
+
+/** Summa av de innehav som kan värderas, och de som inte kan det (saknad valutakurs). */
+export function valuedTotal(s: PortfolioSnapshot) {
+  const unvalued: (ListedHolding | PeHolding)[] = [];
+  let value = 0;
+  for (const h of s.listed) if (isFinite(h.mvBase)) value += h.mvBase; else unvalued.push(h);
+  for (const h of s.pe) if (isFinite(h.navBase)) value += h.navBase; else unvalued.push(h);
+  return { value, unvalued };
+}
+
+/** Summerar och hoppar över NaN (innehav utan valutakurs). */
+export const sumFinite = <T>(a: T[], f: (x: T) => number) => a.reduce((x, y) => { const v = f(y); return isFinite(v) ? x + v : x; }, 0);
 
 /** Kassaflöde in i portföljen (SEK) för en transaktion – positivt = kapital tillförs värdepappersportföljen. */
 export function externalFlow(t: Transaction): number {
@@ -402,16 +462,26 @@ export function valueSeries(data: PortfolioData, from: string, to: string, stepD
   while (ti < txs.length && txs[ti].trade_date <= dates[0]) netInvested += externalFlow(txs[ti++]);
   let index = 100;
   let prevValue = totalValue(snapshot(data, dates[0]));
-  points.push({ date: dates[0], value: prevValue, netInvested, index });
+  points.push({ date: dates[0], value: prevValue, netInvested, index: isFinite(prevValue) ? index : NaN, complete: isFinite(prevValue), invested: false });
+  // Sedan föregående rutnätspunkt: kunde alla delperioder beräknas, och fanns det kapital att avkasta?
+  let complete = true;
+  let invested = false;
   for (let i = 1; i < dates.length; i++) {
     const d1 = dates[i];
     let flow = 0;
     while (ti < txs.length && txs[ti].trade_date <= d1) flow += externalFlow(txs[ti++]);
     netInvested += flow;
     const value = totalValue(snapshot(data, d1));
-    const r = prevValue > EPS ? (value - flow - prevValue) / prevValue : 0;
-    index *= 1 + (isFinite(r) ? r : 0);
-    if (gridSet.has(d1)) points.push({ date: d1, value, netInvested, index });
+    if (!isFinite(value) || !isFinite(prevValue)) complete = false; // saknad valutakurs: avkastningen är okänd, inte 0
+    else if (prevValue > EPS) {
+      index *= 1 + (value - flow - prevValue) / prevValue;
+      invested = true;
+    }
+    if (gridSet.has(d1)) {
+      points.push({ date: d1, value, netInvested, index: isFinite(value) ? index : NaN, complete, invested });
+      complete = true;
+      invested = false;
+    }
     prevValue = value;
   }
   return points;
@@ -438,7 +508,10 @@ export function periodReturns(series: SeriesPoint[], asOf: string): PeriodReturn
     if (!last || d.from < series[0].date) return { ...d, value: null };
     let base = series[0];
     for (const p of series) if (p.date <= d.from) base = p; else break;
-    return { ...d, value: base.index > 0 ? last.index / base.index - 1 : null };
+    const within = series.filter((p) => p.date > base.date && p.date <= last.date);
+    // Ingen avkastning om perioden saknar innehav (tom portfölj) eller om något värde inte kunde beräknas
+    if (!within.length || within.some((p) => p.complete === false) || !within.some((p) => p.invested !== false)) return { ...d, value: null };
+    return { ...d, value: base.index > 0 && isFinite(base.index) && isFinite(last.index) ? last.index / base.index - 1 : null };
   });
 }
 

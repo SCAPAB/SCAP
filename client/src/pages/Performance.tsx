@@ -24,7 +24,7 @@ export default function Performance() {
   const byDate = new Map<string, Record<string, number | string>>();
   for (const r of all) for (const p of r.series) {
     const o = byDate.get(p.date) ?? { date: p.date };
-    o[r.key] = p.index / 100 - 1;
+    if (p.index != null && isFinite(p.index)) o[r.key] = p.index / 100 - 1;
     byDate.set(p.date, o);
   }
   const chart = [...byDate.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
