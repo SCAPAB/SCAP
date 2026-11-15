@@ -4,7 +4,7 @@ import { useApp, useFetch } from '../context';
 import { DataTable, ErrorBox, Loading } from '../components/ui';
 import TxForm from '../components/TxForm';
 import { fmt } from '../format';
-import { TX_LABELS, TYPE_LABELS, type InstrumentType, type Transaction, type TxType } from '../../../shared/types';
+import { TX_LABELS, TYPE_LABELS, txAmount, type InstrumentType, type Transaction, type TxType } from '../../../shared/types';
 
 type Row = Transaction & { document_id: number | null; instrument_name: string; currency: string; instrument_type: InstrumentType; entity_name: string };
 
@@ -69,9 +69,10 @@ export default function Transactions() {
               { key: 't', label: 'Typ', sortValue: (r) => r.type, render: (r) => TX_LABELS[r.type] },
               { key: 'q', label: 'Antal', num: true, sortValue: (r) => r.quantity, render: (r) => (r.quantity ? fmt.qty(r.quantity) : '') },
               { key: 'p', label: 'Kurs', num: true, render: (r) => (r.price ? fmt.price(r.price) : '') },
-              { key: 'a', label: 'Belopp', num: true, sortValue: (r) => r.amount, render: (r) => fmt.dec(r.amount) },
+              { key: 'a', label: 'Belopp', title: 'Kapitalanrop: totalt anropat belopp inklusive avgifter', num: true, sortValue: (r) => txAmount(r), render: (r) => fmt.dec(txAmount(r)) },
+              { key: 'f', label: 'Avgift', title: 'Courtage, källskatt eller avgift. Kapitalanrop: varav avgifter', num: true, sortValue: (r) => r.fee, render: (r) => (r.fee ? fmt.dec(r.fee) : '') },
               { key: 'c', label: 'Valuta', render: (r) => r.currency },
-              { key: 'sek', label: 'Belopp SEK', num: true, sortValue: (r) => r.amount * r.fx_rate, render: (r) => fmt.int(r.amount * r.fx_rate) },
+              { key: 'sek', label: 'Belopp SEK', num: true, sortValue: (r) => txAmount(r) * r.fx_rate, render: (r) => fmt.int(txAmount(r) * r.fx_rate) },
               { key: 'n', label: 'Notering', render: (r) => <span className="muted">{r.note}</span> },
               { key: 'src', label: 'Källa', render: (r) => (r.document_id ? <Link to={`/inkorg/${r.document_id}`} onClick={(e) => e.stopPropagation()} title="Öppna underlaget">Dokument</Link> : <span className="muted small">Manuell</span>) },
             ]}

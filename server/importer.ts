@@ -11,8 +11,8 @@ import { TX_LABELS, type Entity, type Instrument, type TxType } from '../shared/
 export const IMPORT_KINDS = {
   transactions: {
     label: 'Transaktioner',
-    columns: ['datum', 'enhet', 'instrument', 'typ', 'antal', 'kurs', 'belopp', 'avgift', 'valutakurs', 'likviddag', 'notering'],
-    example: 'datum;enhet;instrument;typ;antal;kurs;belopp;avgift;valutakurs;notering\n2026-01-15;;SE0000115446;Köp;1000;245,50;245500;98;;Köp via mäklare',
+    columns: ['datum', 'enhet', 'instrument', 'typ', 'antal', 'kurs', 'belopp', 'avgift', 'valutakurs', 'likviddag', 'notering', 'utjämningsränta', 'återinkallningsbart'],
+    example: 'datum;enhet;instrument;typ;antal;kurs;belopp;avgift;valutakurs;notering\n2026-01-15;;SE0000115446;Köp;1000;245,50;245500;98;;Köp via mäklare\n2026-02-01;;Exempel Buyout Fund IV;Kapitalanrop;;;1100000;100000;;Anrop 5, varav avgifter 100 000',
   },
   prices: { label: 'Kurser', columns: ['instrument', 'datum', 'kurs'], example: 'instrument;datum;kurs\nSE0000115446;2026-01-15;246,10' },
   fx: { label: 'Valutakurser', columns: ['valuta', 'datum', 'kurs'], example: 'valuta;datum;kurs\nEUR;2026-01-15;11,02' },
@@ -29,6 +29,7 @@ const ALIASES: Record<string, string> = {
   quantity: 'antal', price: 'kurs', amount: 'belopp', fee: 'avgift', courtage: 'avgift', fx: 'valutakurs', fx_rate: 'valutakurs',
   settle_date: 'likviddag', note: 'notering', kommentar: 'notering', currency: 'valuta', rate: 'kurs', name: 'namn', country: 'land',
   sector: 'bransch', category: 'kategori', manager: 'förvaltare', strategy: 'strategi', värdepapper: 'instrument',
+  outside_commitment: 'utjämningsränta', utanför_åtagandet: 'utjämningsränta', recallable: 'återinkallningsbart',
 };
 const TX_TYPES: Record<string, TxType> = {
   köp: 'BUY', buy: 'BUY', sälj: 'SELL', sell: 'SELL', försäljning: 'SELL', utdelning: 'DIVIDEND', dividend: 'DIVIDEND',

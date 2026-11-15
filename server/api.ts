@@ -12,7 +12,7 @@ import { docs } from './documents.ts';
 import { portfolioRoutes } from './portfolio.ts';
 import { morningstar } from './morningstar.ts';
 import type { Instrument, Transaction, ListedHolding, PeHolding, InstrumentType } from '../shared/types.ts';
-import { TX_LABELS, TYPE_LABELS, ASSET_CLASS_LABEL, type AssetClass } from '../shared/types.ts';
+import { TX_LABELS, TYPE_LABELS, ASSET_CLASS_LABEL, txAmount, type AssetClass } from '../shared/types.ts';
 
 export const api = Router();
 
@@ -531,8 +531,10 @@ api.get('/reports/transactions.csv', (req, res) => {
   ).filter((t) => !ents || ents.includes(t.entity_id));
   sendCsv(res, `transaktioner_${from}_${to}.csv`, rows.map((t) => ({
     Affärsdag: t.trade_date, Likviddag: t.settle_date ?? '', Enhet: t.entity_name, Instrument: t.instrument_name, ISIN: t.isin ?? '',
-    Typ: TX_LABELS[t.type], Antal: fmtNum(t.quantity, 4), Kurs: fmtNum(t.price, 4), Belopp: fmtNum(t.amount), Avgift: fmtNum(t.fee),
-    Valuta: t.currency, Valutakurs: fmtNum(t.fx_rate, 4), 'Belopp SEK': fmtNum(t.amount * t.fx_rate), Notering: t.note ?? '',
+    // Kapitalanrop: Belopp = totalt anropat (som på avin), Avgift = varav avgifter
+    Typ: TX_LABELS[t.type], Antal: fmtNum(t.quantity, 4), Kurs: fmtNum(t.price, 4), Belopp: fmtNum(txAmount(t)), Avgift: fmtNum(t.fee),
+    Utjämningsränta: t.outside_commitment ? fmtNum(t.outside_commitment) : '', Återinkallningsbart: t.recallable ? fmtNum(t.recallable) : '',
+    Valuta: t.currency, Valutakurs: fmtNum(t.fx_rate, 4), 'Belopp SEK': fmtNum(txAmount(t) * t.fx_rate), Notering: t.note ?? '',
   })));
 });
 

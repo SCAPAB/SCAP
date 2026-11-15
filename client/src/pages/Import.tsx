@@ -104,7 +104,8 @@ export default function ImportPage() {
             <li>Datum anges ÅÅÅÅ-MM-DD.</li>
             <li>Kolumnen enhet kan utelämnas. Instrument anges med ISIN, namn, ticker eller id.</li>
             {kind === 'transactions' && <li>Typ: Köp, Sälj, Utdelning, Avgift, Åtagande, Kapitalanrop, Återbetalning.</li>}
-            {kind === 'transactions' && <li>Lämnas valutakurs tom hämtas den från registrerade valutakurser.</li>}
+            {kind === 'transactions' && <li>Lämnas valutakurs tom hämtas den från registrerade valutakurser – högst 7 dagar före affärsdagen, aldrig en senare kurs. Kursens datum visas i förhandsgranskningen.</li>}
+            {kind === 'transactions' && <li>Kapitalanrop: <em>belopp</em> är totalt anropat belopp enligt avin och <em>avgift</em> varav avgifter. <em>utjämningsränta</em> (utanför åtagandet) och <em>återinkallningsbart</em> (för utdelningar) är valfria.</li>}
             <li>Befintliga kurser/NAV för samma datum skrivs över.</li>
           </ul>
         </div>

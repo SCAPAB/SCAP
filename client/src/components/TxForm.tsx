@@ -28,6 +28,16 @@ export default function TxForm({ initial, instrumentId, onClose }: { initial?: T
   }, [ins]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k: keyof Transaction) => (e: { target: { value: string } }) => setD((x) => ({ ...x, [k]: e.target.value }));
+  // Valutakurs som hämtas automatiskt (högst 7 dagar före affärsdagen) – visas med kursens datum
+  const [fxAuto, setFxAuto] = useState<{ rate: number | null; date: string | null; message?: string } | null>(null);
+  const needFx = !!ins && ins.currency !== 'SEK' && !d.fx_rate && !!d.trade_date && d.type !== 'COMMITMENT';
+  useEffect(() => {
+    if (!needFx || !ins) { setFxAuto(null); return; }
+    let alive = true;
+    api.get<{ rate: number | null; date: string | null; message?: string }>(`/fx-lookup?currency=${ins.currency}&date=${d.trade_date}`)
+      .then((r) => alive && setFxAuto(r)).catch(() => alive && setFxAuto(null));
+    return () => { alive = false; };
+  }, [needFx, ins, d.trade_date]);
   const isTrade = d.type === 'BUY' || d.type === 'SELL';
   const parse = (s?: string) => (s ? Number(s.replace(/\s/g, '').replace(',', '.')) : NaN);
   const computed = isTrade && !d.amount ? parse(d.quantity) * parse(d.price) : NaN;
@@ -102,8 +112,29 @@ export default function TxForm({ initial, instrumentId, onClose }: { initial?: T
           <input inputMode="decimal" value={d.amount} onChange={set('amount')} required={!isTrade} placeholder={isFinite(computed) ? fmt.num(computed) : ''} />
         </label>
         {d.type !== 'COMMITMENT' && <label className="field">{feeLabel} ({ins?.currency ?? '–'})<input inputMode="decimal" value={d.fee} onChange={set('fee')} /></label>}
-        {ins && ins.currency !== 'SEK' && (
-          <label className="field">Valutakurs SEK/{ins.currency}<input inputMode="decimal" value={d.fx_rate} onChange={set('fx_rate')} placeholder="Hämtas automatiskt" /></label>
+        {d.type === 'CALL' && (
+          <label className="field">Varav utjämningsränta ({ins?.currency ?? '–'})
+            <input inputMode="decimal" value={d.outside_commitment ?? ''} onChange={set('outside_commitment')} placeholder="0" />
+            <span className="small muted">Utanför åtagandet – minskar inte outnyttjat åtagande</span>
+          </label>
+        )}
+        {d.type === 'DISTRIBUTION' && (
+          <label className="field">Varav återinkallningsbart ({ins?.currency ?? '–'})
+            <input inputMode="decimal" value={d.recallable ?? ''} onChange={set('recallable')} placeholder="0" />
+            <span className="small muted">Kan anropas igen – ökar outnyttjat åtagande</span>
+          </label>
+        )}
+        {ins && ins.currency !== 'SEK' && d.type !== 'COMMITMENT' && (
+          <label className="field">Valutakurs SEK/{ins.currency}
+            <input inputMode="decimal" value={d.fx_rate} onChange={set('fx_rate')} placeholder={fxAuto?.rate ? fmt.dec(fxAuto.rate, 4) : 'Hämtas automatiskt'} />
+            {needFx && fxAuto?.rate != null && <span className="small muted">Hämtas automatiskt: kurs per {fxAuto.date}</span>}
+            {needFx && fxAuto && fxAuto.rate == null && <span className="small neg">{fxAuto.message}</span>}
+          </label>
+        )}
+        {d.type === 'CALL' && (
+          <div className="full small muted">
+            Ange beloppet som det står på avin: totalt anropat belopp inklusive avgifter. Investeringsdelen (som ökar NAV) blir {fmt.num(Math.max(0, parse(d.amount) - (parse(d.fee) || 0)))} {ins?.currency}.
+          </div>
         )}
         <label className="field full">Notering<input value={d.note ?? ''} onChange={set('note')} maxLength={500} /></label>
         {error && <div className="alert error full" style={{ margin: 0 }}>{error}</div>}

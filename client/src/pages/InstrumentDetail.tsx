@@ -7,7 +7,7 @@ import { PriceChart } from '../components/charts';
 import TxForm from '../components/TxForm';
 import InstrumentForm from '../components/InstrumentForm';
 import { fmt, tone, today } from '../format';
-import { ASSET_CLASSES, TX_LABELS, TYPE_LABELS, type Instrument, type ListedHolding, type PeHolding, type Transaction } from '../../../shared/types';
+import { ASSET_CLASSES, TX_LABELS, txAmount, TYPE_LABELS, type Instrument, type ListedHolding, type PeHolding, type Transaction } from '../../../shared/types';
 
 type Tx = Transaction & { entity_name: string; document_id: number | null };
 type Val = { entity_id: number; instrument_id: number; date: string; nav: number; source: string; entity_name: string };
@@ -91,8 +91,8 @@ export default function InstrumentDetail() {
                 { key: 'd', label: 'Affärsdag', sortValue: (t) => t.trade_date, render: (t) => t.trade_date },
                 { key: 't', label: 'Typ', render: (t) => TX_LABELS[t.type] },
                 ...(!pe ? [{ key: 'q', label: 'Antal', num: true, render: (t: Tx) => (t.quantity ? fmt.qty(t.quantity) : '') }, { key: 'p', label: 'Kurs', num: true, render: (t: Tx) => (t.price ? fmt.price(t.price) : '') }] : []),
-                { key: 'a', label: `Belopp ${ins.currency}`, num: true, render: (t) => fmt.dec(t.amount) },
-                { key: 'f', label: 'Avgift', num: true, render: (t) => (t.fee ? fmt.dec(t.fee) : '') },
+                { key: 'a', label: `Belopp ${ins.currency}`, title: pe ? 'Kapitalanrop: totalt anropat belopp inklusive avgifter' : undefined, num: true, render: (t) => fmt.dec(txAmount(t)) },
+                { key: 'f', label: pe ? 'Varav avgift' : 'Avgift', num: true, render: (t) => (t.fee ? fmt.dec(t.fee) : '') },
                 { key: 'fx', label: 'Valutakurs', num: true, render: (t) => (ins.currency === 'SEK' ? '' : fmt.dec(t.fx_rate, 4)) },
                 { key: 'n', label: 'Notering', render: (t) => <span className="muted">{t.note}</span> },
                 { key: 'src', label: 'Källa', render: (t) => (t.document_id ? <Link to={`/inkorg/${t.document_id}`} onClick={(e) => e.stopPropagation()}>Dokument</Link> : '') },

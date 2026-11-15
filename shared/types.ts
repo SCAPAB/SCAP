@@ -67,6 +67,12 @@ export interface Transaction {
   recallable?: number;
 }
 
+/**
+ * Beloppet som visas och tas emot i formulär, listor, import och export. För kapitalanrop är det det
+ * TOTALA anropade beloppet (som på avin); internt lagras investeringsdelen i amount och avgifterna i fee.
+ */
+export const txAmount = (t: Pick<Transaction, 'type' | 'amount' | 'fee'>) => (t.type === 'CALL' ? t.amount + t.fee : t.amount);
+
 /** Position i ett noterat instrument (aktie eller fond). Belopp i "Base" är i SEK. */
 export interface ListedHolding {
   instrumentId: number;

@@ -112,8 +112,7 @@ export function insertTransaction(v: ReturnType<typeof validateTransaction>, use
   return Number(r.lastInsertRowid);
 }
 
-/** Beloppet som visas och tas emot i formulär, listor, import och export: för kapitalanrop det totala anropade beloppet. */
-export const displayAmount = (t: Pick<Transaction, 'type' | 'amount' | 'fee'>) => (t.type === 'CALL' ? t.amount + t.fee : t.amount);
+export { txAmount as displayAmount } from '../shared/types.ts';
 
 const TYPES: InstrumentType[] = ['EQUITY', 'FUND', 'PE_FUND'];
 export function validateInstrument(b: Record<string, unknown>) {

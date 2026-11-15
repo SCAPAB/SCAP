@@ -104,3 +104,39 @@ test('fynd 1: valuta utan kurs flaggas och avkastningen räknas inte som 0', asy
   const all = o.body.returns.find((r: { key: string }) => r.key === 'ALL');
   assert.equal(all.value, null, 'ofullständig avkastning ska visas som saknad, inte 0 %');
 });
+
+// ---------------------------------------------------------------------------
+// Fynd 6 och 14: kapitalanrop = totalt belopp; utjämningsränta och återinkallningsbart
+// ---------------------------------------------------------------------------
+
+test('fynd 6: kapitalanrop registreras och visas som totalt anropat belopp', async () => {
+  const c = await admin.call('POST', '/transactions', { entity_id: 1, instrument_id: 3, type: 'COMMITMENT', trade_date: '2024-01-01', amount: 1_000_000 });
+  assert.equal(c.status, 201);
+  const r = await admin.call('POST', '/transactions', { entity_id: 1, instrument_id: 3, type: 'CALL', trade_date: '2024-03-01', amount: 110_000, fee: 10_000, outside_commitment: 2_000 });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const t = db.get<{ amount: number; fee: number; outside_commitment: number }>('SELECT amount, fee, outside_commitment FROM transactions WHERE id=?', r.body.id)!;
+  assert.deepEqual({ ...t }, { amount: 100_000, fee: 10_000, outside_commitment: 2_000 }, 'investeringsdel + avgift lagras separat');
+  const h = (await admin.call('GET', '/instruments/3?asOf=2024-06-30')).body.total;
+  assert.equal(h.paidIn, 110_000, 'inbetalt = totalt anropat, ingen dubbelräkning av avgiften');
+  assert.equal(h.uncalled, 1_000_000 - 108_000, 'utjämningsräntan minskar inte outnyttjat åtagande');
+  const csv = (await admin.call('GET', '/reports/transactions.csv?from=2024-03-01&to=2024-03-01')).body as string;
+  assert.match(csv, /Kapitalanrop;0;0;110000;10000;2000/);
+  // Avgift större än totalen avvisas
+  const bad = await admin.call('POST', '/transactions', { entity_id: 1, instrument_id: 3, type: 'CALL', trade_date: '2024-03-02', amount: 5_000, fee: 6_000 });
+  assert.equal(bad.status, 400);
+  // Redigering tar emot totalen på samma sätt
+  const put = await admin.call('PUT', `/transactions/${r.body.id}`, { entity_id: 1, instrument_id: 3, type: 'CALL', trade_date: '2024-03-01', amount: 120_000, fee: 10_000, outside_commitment: 0 });
+  assert.equal(put.status, 200);
+  assert.equal(db.get<{ amount: number }>('SELECT amount FROM transactions WHERE id=?', r.body.id)!.amount, 110_000);
+});
+
+test('fynd 6/14: import tar emot totalbelopp, utjämningsränta och återinkallningsbart', async () => {
+  const csv = 'datum;instrument;typ;belopp;avgift;utjämningsränta;återinkallningsbart\n2024-05-01;Buyout IV;Kapitalanrop;55000;5000;1000;\n2024-09-01;Buyout IV;Återbetalning;40000;;;15000';
+  const r = await admin.call('POST', '/import/transactions', { csv, dryRun: false });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.errors, []);
+  assert.equal(r.body.preview[0].belopp, 55_000);
+  const call = db.get<{ amount: number; fee: number; outside_commitment: number }>("SELECT amount, fee, outside_commitment FROM transactions WHERE type='CALL' AND trade_date='2024-05-01'")!;
+  assert.deepEqual({ ...call }, { amount: 50_000, fee: 5_000, outside_commitment: 1_000 });
+  assert.equal(db.get<{ recallable: number }>("SELECT recallable FROM transactions WHERE type='DISTRIBUTION' AND trade_date='2024-09-01'")!.recallable, 15_000);
+});
