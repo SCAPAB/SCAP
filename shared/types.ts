@@ -65,6 +65,8 @@ export interface Transaction {
   outside_commitment?: number;
   /** PE: del av utdelningen som får anropas igen (recallable) – ökar outnyttjat åtagande */
   recallable?: number;
+  /** Underlaget i Inkorgen som transaktionen bokfördes från (null = registrerad direkt) */
+  document_id?: number | null;
 }
 
 /**

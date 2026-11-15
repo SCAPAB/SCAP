@@ -6,7 +6,9 @@ import {
 } from './data.ts';
 import { allocate, peHolding, listedHolding, periodReturns, snapshot, valueSeries, addDays, sumListed, sumPe, stripPe, portfolioIrrBase, valuedTotal, sumFinite } from './calc.ts';
 import { validateInstrument, validateTransaction, assertPositions, fxMissingMessage, insertTransaction, isDate, num } from './validate.ts';
-import { importCsv, IMPORT_KINDS } from './importer.ts';
+import { importCsv, IMPORT_KINDS, type ValidRow } from './importer.ts';
+import { submitTxChange, assertNoPendingChange, pendingChangeFor, createUnderlag, addTxProposal } from './underlag.ts';
+import { dualControl, refreshDocumentStatus } from './proposals.ts';
 import { toCsv } from './csv.ts';
 import { docs } from './documents.ts';
 import { portfolioRoutes } from './portfolio.ts';
@@ -163,15 +165,26 @@ api.get('/transactions', (req, res) => {
   if (req.query.q) { where.push('(i.name LIKE ? OR i.isin LIKE ? OR t.note LIKE ?)'); const q = `%${req.query.q}%`; p.push(q, q, q); }
   const limit = Math.min(Number(req.query.limit) || 500, 5000);
   const rows = all(
-    `SELECT t.*, i.name instrument_name, i.currency, i.type instrument_type, e.name entity_name
-     FROM transactions t JOIN instruments i ON i.id=t.instrument_id JOIN entities e ON e.id=t.entity_id
+    `SELECT t.*, i.name instrument_name, i.currency, i.type instrument_type, e.name entity_name, d.source doc_source,
+       (SELECT p.document_id FROM proposals p WHERE p.replaces_tx=t.id AND p.status='pending' LIMIT 1) pending_change_doc
+     FROM transactions t JOIN instruments i ON i.id=t.instrument_id JOIN entities e ON e.id=t.entity_id LEFT JOIN documents d ON d.id=t.document_id
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY t.trade_date DESC, t.id DESC LIMIT ${limit}`,
     ...p,
   );
   res.json(rows);
 });
 
+const docLinked = (t: Transaction) => new HttpError(409,
+  `Transaktionen är bokförd från ett underlag i Inkorgen (dokument #${t.document_id}) och kan inte ändras eller tas bort här. `
+  + 'Välj "Korrigera i Inkorgen" eller "Begär borttagning" – ändringen görs bredvid underlaget och godkänns där, så att spårbarheten bevaras.');
+const pendingMsg = 'Fyra ögon-principen är aktiv: ändringen har lagts i Inkorgen och bokförs när en annan användare har attesterat den.';
+
 api.post('/transactions', editor, (req, res) => {
+  if (dualControl()) {
+    const r = submitTxChange(req.body ?? {}, 'create', req.user, { prepared: true });
+    bumpVersion();
+    return res.status(202).json({ pending: true, ...r, message: pendingMsg });
+  }
   const v = validateTransaction(req.body ?? {});
   const id = insertTransaction(v, uid(req));
   audit(uid(req), 'create', 'transaction', id, v);
@@ -183,6 +196,13 @@ api.put('/transactions/:id', editor, (req, res) => {
   const id = Number(req.params.id);
   const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
   if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
+  if (cur.document_id) throw docLinked(cur);
+  assertNoPendingChange(id);
+  if (dualControl()) {
+    const r = submitTxChange(req.body ?? {}, 'replace', req.user, { replacesTx: cur, prepared: true });
+    bumpVersion();
+    return res.status(202).json({ pending: true, ...r, message: pendingMsg });
+  }
   const v = validateTransaction(req.body ?? {}, { replaceId: id });
   // Ett köp som flyttas till en annan enhet eller ett annat instrument får inte lämna försäljningar utan täckning
   if (cur.type === 'BUY' && (cur.entity_id !== v.entity_id || cur.instrument_id !== v.instrument_id)) assertPositions(cur.entity_id, cur.instrument_id, { remove: [id] }, 'Kan inte flytta köpet: ');
@@ -199,11 +219,36 @@ api.delete('/transactions/:id', editor, (req, res) => {
   const id = Number(req.params.id);
   const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
   if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
+  if (cur.document_id) throw docLinked(cur);
+  assertNoPendingChange(id);
   if (cur.type === 'BUY') assertPositions(cur.entity_id, cur.instrument_id, { remove: [id] }, 'Kan inte ta bort köpet: ');
+  if (dualControl()) {
+    const r = submitTxChange({}, 'remove', req.user, { replacesTx: cur, prepared: true });
+    bumpVersion();
+    return res.status(202).json({ pending: true, ...r, message: pendingMsg });
+  }
   run('DELETE FROM transactions WHERE id=?', id);
   audit(uid(req), 'delete', 'transaction', id, cur);
   bumpVersion();
   res.json({ ok: true });
+});
+
+/**
+ * Rättelse eller borttagning via Inkorgen: skapar en post (kopia av transaktionen) som granskas och godkänns
+ * bredvid underlaget. Transaktionen ligger kvar oförändrad tills posten har godkänts.
+ */
+api.post('/transactions/:id/correction', editor, (req, res) => {
+  const id = Number(req.params.id);
+  const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
+  if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
+  const action = req.body?.action === 'remove' ? 'remove' : 'replace';
+  const existing = pendingChangeFor(id);
+  if (existing) return res.json({ document_id: existing.document_id, proposal_id: existing.id, existing: true });
+  if (action === 'remove' && cur.type === 'BUY') assertPositions(cur.entity_id, cur.instrument_id, { remove: [id] }, 'Kan inte ta bort köpet: ');
+  const body = { ...cur, amount: txAmount(cur) };
+  const r = submitTxChange(body, action, req.user, { replacesTx: cur, prepared: false });
+  bumpVersion();
+  res.status(201).json(r);
 });
 
 /** Valutakurs som skulle användas automatiskt för en affär (visas i formuläret med kursens datum). */
@@ -486,7 +531,25 @@ api.get('/import-kinds', (_req, res) => res.json(IMPORT_KINDS));
 
 api.post('/import/:kind', editor, (req, res) => {
   const dryRun = req.body?.dryRun !== false;
-  const result = importCsv(req.params.kind as string, String(req.body?.csv ?? ''), { dryRun, userId: uid(req) });
+  const kind = req.params.kind as string;
+  const csv = String(req.body?.csv ?? '');
+  if (kind === 'transactions' && dualControl() && !dryRun) {
+    // Fyra ögon: raderna valideras som vanligt men läggs som förslag i Inkorgen för attest
+    const rows: ValidRow[] = [];
+    const result = importCsv(kind, csv, { dryRun: true, userId: uid(req), collect: rows });
+    if (result.errors.length) return res.json({ ...result, inserted: 0 });
+    const u = req.user!;
+    const docId = tx(() => {
+      const d = createUnderlag('import', `Import av ${rows.length} transaktioner ${today()}`, `Import registrerad av ${u.name}: ${rows.length} rader väntar på attest`, csv, u.id);
+      for (const r of rows) addTxProposal(d, r.v as unknown as Transaction, { userId: u.id, action: 'create', prepared: true, fxGiven: r.fxGiven });
+      refreshDocumentStatus(d);
+      return d;
+    });
+    audit(uid(req), 'import', kind, null, { rows: rows.length, pending_approval: true, document_id: docId });
+    bumpVersion();
+    return res.json({ ...result, inserted: 0, committed: false, pendingApproval: true, document_id: docId });
+  }
+  const result = importCsv(kind, csv, { dryRun, userId: uid(req) });
   if (!dryRun && result.inserted > 0) {
     audit(uid(req), 'import', req.params.kind as string, null, { inserted: result.inserted });
     bumpVersion();

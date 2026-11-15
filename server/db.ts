@@ -31,6 +31,12 @@ function migrate(d: DatabaseSync) {
   const pr = cols('proposals');
   if (!pr.includes('prepared_by')) d.exec('ALTER TABLE proposals ADD COLUMN prepared_by INTEGER REFERENCES users(id)');
   if (!pr.includes('prepared_at')) d.exec('ALTER TABLE proposals ADD COLUMN prepared_at TEXT');
+  if (!pr.includes('action')) d.exec("ALTER TABLE proposals ADD COLUMN action TEXT NOT NULL DEFAULT 'create'"); // create | replace | remove
+  if (!pr.includes('replaces_tx')) d.exec('ALTER TABLE proposals ADD COLUMN replaces_tx INTEGER');
+  const dc = cols('documents');
+  // Underlag som skapas i programmet (manuell registrering/import under fyra ögon): innehållet sparas som text i databasen
+  if (!dc.includes('source')) d.exec("ALTER TABLE documents ADD COLUMN source TEXT NOT NULL DEFAULT 'upload'"); // upload | manual | import
+  if (!dc.includes('content')) d.exec('ALTER TABLE documents ADD COLUMN content TEXT');
   const v = cols('pe_valuations');
   if (!v.includes('document_id')) d.exec('ALTER TABLE pe_valuations ADD COLUMN document_id INTEGER REFERENCES documents(id)');
 }

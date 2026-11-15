@@ -11,9 +11,9 @@ export { nameScore } from './matching.ts';
 import { HttpError } from './auth.ts';
 import { getMarket, bumpVersion } from './data.ts';
 import { listedHolding, peHolding, addDays, findOversell } from './calc.ts';
-import { validateTransaction, insertTransaction, fxMissingMessage } from './validate.ts';
+import { validateTransaction, insertTransaction, fxMissingMessage, assertPositions } from './validate.ts';
 import type { ExtractionT } from './ai.ts';
-import type { Entity, Instrument, InstrumentType, Transaction } from '../shared/types.ts';
+import { txAmount, type Entity, type Instrument, type InstrumentType, type Transaction } from '../shared/types.ts';
 
 export type Kind = 'BUY' | 'SELL' | 'DIVIDEND' | 'FEE' | 'COMMITMENT' | 'CALL' | 'DISTRIBUTION' | 'NAV' | 'PRICE' | 'HOLDING';
 export type Confidence = 'high' | 'medium' | 'low';
@@ -77,6 +77,8 @@ export interface ProposalRow {
   entity_id: number | null; instrument_id: number | null; match: string | null; fields: string; line_items: string | null;
   result_ref: string | null; decided_by: number | null; decided_at: string | null; comment: string | null;
   prepared_by: number | null; prepared_at: string | null;
+  /** create = ny post, replace = rättelse av transaktionen replaces_tx, remove = borttagning av replaces_tx */
+  action: 'create' | 'replace' | 'remove'; replaces_tx: number | null;
 }
 
 export interface Check { level: 'error' | 'warning' | 'ok' | 'info'; code: string; message: string }
@@ -205,6 +207,14 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
   const kind = p.kind;
   const ins = p.instrument_id ? get<Instrument>('SELECT * FROM instruments WHERE id=?', p.instrument_id) : undefined;
   const ent = p.entity_id ? get<Entity>('SELECT * FROM entities WHERE id=?', p.entity_id) : undefined;
+  if (p.action === 'remove') return evaluateRemoval(p);
+  const replaced = p.action === 'replace' && p.replaces_tx ? get<Transaction>('SELECT * FROM transactions WHERE id=?', p.replaces_tx) : undefined;
+  if (p.action === 'replace') {
+    if (!replaced) checks.push({ level: 'error', code: 'replaced_missing', message: `Transaktion #${p.replaces_tx} som ska rättas finns inte längre` });
+    else checks.push({ level: 'info', code: 'replaces', message: `Rättelse: ersätter transaktion #${replaced.id} (${replaced.trade_date}, ${replaced.type}, ${fmt(txAmount(replaced), 2)}) när posten godkänns` });
+  }
+  /** Bokförda transaktioner som kontrollerna jämför med – utan den som rättas */
+  const booked = (sql: string, ...params: unknown[]) => all<Transaction>(sql, ...params).filter((t) => t.id !== p.replaces_tx);
 
   const amount = num(fields.amount);
   const fee = num(fields.fee) ?? 0;
@@ -305,7 +315,7 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
   // Dubbletter: samma enhet, instrument, typ, datum och belopp
   if (ins && ent && date && isDate(date)) {
     if (['CALL', 'DISTRIBUTION', 'BUY', 'SELL', 'DIVIDEND', 'FEE', 'COMMITMENT'].includes(kind)) {
-      const near = all<Transaction>(
+      const near = booked(
         'SELECT * FROM transactions WHERE entity_id=? AND instrument_id=? AND type=? AND trade_date BETWEEN ? AND ?',
         ent.id, ins.id, kind, addDays(date, -5), addDays(date, 5),
       ).filter((t) => {
@@ -326,7 +336,7 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
   // Effekt och avstämning mot bokfört innehav
   if (ins && ent && date && isDate(date)) {
     const m = getMarket();
-    const txs = all<Transaction>('SELECT * FROM transactions WHERE entity_id=? AND instrument_id=?', ent.id, ins.id);
+    const txs = booked('SELECT * FROM transactions WHERE entity_id=? AND instrument_id=?', ent.id, ins.id);
     if (ins.type === 'PE_FUND') {
       const asOf = date;
       const before = peHolding(ins, ent.id, txs, m, asOf);
@@ -409,7 +419,7 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
   // Sista kontroll: samma validering som vid manuell registrering
   if (TX_KINDS.includes(kind) && ins && ent && date && isDate(date) && !checks.some((c) => c.level === 'error')) {
     try {
-      validateTransaction(txBody(p, fields));
+      validateTransaction(txBody(p, fields), { replaceId: p.replaces_tx ?? undefined });
     } catch (e) {
       checks.push({ level: 'error', code: 'validate', message: (e as Error).message });
     }
@@ -428,6 +438,40 @@ function txBody(p: ProposalRow, f: Record<string, PField>): Record<string, unkno
     quantity: num(f.quantity), price: num(f.price), amount: num(f.amount), fee: num(f.fee), fx_rate: num(f.fx_rate), note: str(f.note),
     outside_commitment: num(f.outside_commitment), recallable: num(f.recallable),
   };
+}
+
+/** Borttagning av en bokförd transaktion: kontrollera att inga försäljningar blir utan täckning och visa effekten. */
+function evaluateRemoval(p: ProposalRow): Evaluated {
+  const checks: Check[] = [];
+  const preview: Evaluated['preview'] = [];
+  const t = p.replaces_tx ? get<Transaction>('SELECT * FROM transactions WHERE id=?', p.replaces_tx) : undefined;
+  if (!t) checks.push({ level: 'error', code: 'replaced_missing', message: `Transaktion #${p.replaces_tx} finns inte längre` });
+  else {
+    checks.push({ level: 'info', code: 'remove', message: `Transaktion #${t.id} (${t.trade_date}, ${t.type}, ${fmt(txAmount(t), 2)}) tas bort när posten godkänns` });
+    const ins = get<Instrument>('SELECT * FROM instruments WHERE id=?', t.instrument_id)!;
+    const txs = all<Transaction>('SELECT * FROM transactions WHERE entity_id=? AND instrument_id=?', t.entity_id, t.instrument_id);
+    const rest = txs.filter((x) => x.id !== t.id);
+    const bad = findOversell(rest);
+    if (bad) checks.push({ level: 'error', code: 'oversell', message: `Kan inte ta bort: försäljningen ${bad.date} (${fmt(bad.quantity, 4)} st) överstiger då innehavet (${fmt(bad.held, 4)} st) per den dagen` });
+    const m = getMarket();
+    const asOf = new Date().toISOString().slice(0, 10);
+    const d = asOf > t.trade_date ? asOf : t.trade_date;
+    if (ins.type === 'PE_FUND') {
+      const b = peHolding(ins, t.entity_id, txs, m, d);
+      const a = peHolding(ins, t.entity_id, rest, m, d);
+      const c = ` ${ins.currency}`;
+      preview.push({ label: 'Inbetalt', before: fmt(b.paidIn) + c, after: fmt(a.paidIn) + c });
+      preview.push({ label: 'Outnyttjat åtagande', before: fmt(b.uncalled) + c, after: fmt(a.uncalled) + c });
+      preview.push({ label: 'Utdelat', before: fmt(b.distributed) + c, after: fmt(a.distributed) + c });
+    } else {
+      const b = listedHolding(ins, t.entity_id, txs, m, d);
+      const a = listedHolding(ins, t.entity_id, rest, m, d);
+      preview.push({ label: 'Antal', before: fmt(b.quantity, 4), after: fmt(a.quantity, 4) });
+      preview.push({ label: 'Anskaffningsvärde SEK', before: fmt(b.costBase), after: fmt(a.costBase) });
+    }
+  }
+  const blocking = checks.filter((c) => c.level === 'error').map((c) => c.message);
+  return { checks, preview, blocking, canApprove: blocking.length === 0 && p.status === 'pending', needsAck: false };
 }
 
 /** Transaktionen som skulle skapas (utan att spara). */
@@ -497,22 +541,42 @@ export function approve(id: number, userId: number | null, opts: { acknowledgeWa
         ref = `reconciled:${p.entity_id}:${p.instrument_id}:${date}`;
         break;
       default: {
+        if (p.action === 'remove') {
+          const old = get<Transaction>('SELECT * FROM transactions WHERE id=?', p.replaces_tx);
+          if (!old) throw new HttpError(409, `Transaktion #${p.replaces_tx} finns inte längre`);
+          if (old.type === 'BUY') assertPositions(old.entity_id, old.instrument_id, { remove: [old.id] }, 'Kan inte ta bort: ');
+          run('DELETE FROM transactions WHERE id=?', old.id);
+          audit(userId, 'delete', 'transaction', old.id, { ...old, via_proposal: id });
+          ref = `removed:${old.id}`;
+          relink(old.id, ref, id, 'Transaktionen togs bort');
+          break;
+        }
         // Samma validering som vid manuell registrering, inklusive innehav över hela tidslinjen
-        const v = validateTransaction(txBody(p, f));
+        const old = p.action === 'replace' ? get<Transaction>('SELECT * FROM transactions WHERE id=?', p.replaces_tx) : undefined;
+        if (p.action === 'replace' && !old) throw new HttpError(409, `Transaktion #${p.replaces_tx} som ska rättas finns inte längre`);
+        const v = validateTransaction(txBody(p, f), { replaceId: old?.id });
+        if (old && old.type === 'BUY' && (old.entity_id !== v.entity_id || old.instrument_id !== v.instrument_id)) assertPositions(old.entity_id, old.instrument_id, { remove: [old.id] }, 'Kan inte flytta köpet: ');
+        if (old) {
+          run('DELETE FROM transactions WHERE id=?', old.id);
+          audit(userId, 'delete', 'transaction', old.id, { ...old, replaced_via_proposal: id });
+        }
         const txId = insertTransaction(v, userId, { document_id: p.document_id, details: lines ? JSON.stringify(lines) : null });
+        audit(userId, 'create', 'transaction', txId, { ...v, document_id: p.document_id, proposal: id, replaces: old?.id ?? null });
         ref = `transaction:${txId}`;
+        if (old) relink(old.id, ref, id, 'Rättad');
       }
     }
     run("UPDATE proposals SET status='approved', result_ref=?, decided_by=?, decided_at=datetime('now'), comment=? WHERE id=?", ref, userId, opts.comment ?? null, id);
     // Lär in hur avsändaren benämner instrument och enhet, så att nästa dokument matchas säkert
-    const issuer = get<{ issuer: string | null }>('SELECT issuer FROM documents WHERE id=?', p.document_id)?.issuer ?? null;
+    const docRow = get<{ issuer: string | null; source: string }>('SELECT issuer, source FROM documents WHERE id=?', p.document_id);
+    const issuer = docRow?.issuer ?? null;
     const learned: string[] = [];
-    if (str(f.instrument_name) && learnAlias('instrument', str(f.instrument_name), issuer, p.instrument_id!, userId)) learned.push(`instrument "${str(f.instrument_name)}"`);
-    if (str(f.investor_label) && p.entity_id && learnAlias('entity', str(f.investor_label), issuer, p.entity_id, userId)) learned.push(`investerare "${str(f.investor_label)}"`);
+    if (docRow?.source === 'upload' && str(f.instrument_name) && learnAlias('instrument', str(f.instrument_name), issuer, p.instrument_id!, userId)) learned.push(`instrument "${str(f.instrument_name)}"`);
+    if (docRow?.source === 'upload' && str(f.investor_label) && p.entity_id && learnAlias('entity', str(f.investor_label), issuer, p.entity_id, userId)) learned.push(`investerare "${str(f.investor_label)}"`);
     // Spårbarhet: vad AI föreslog och vad som ändrades
     const changes = Object.fromEntries(Object.entries(f).filter(([, v]) => v.edited).map(([k, v]) => [k, { ai: v.ai_value, final: v.value }]));
     audit(userId, 'approve', 'proposal', id, {
-      document_id: p.document_id, kind: p.kind, result: ref, origin: p.origin, changed_from_ai: changes,
+      document_id: p.document_id, kind: p.kind, action: p.action, replaces_tx: p.replaces_tx, result: ref, origin: p.origin, changed_from_ai: changes,
       confirmed_low_confidence: Object.entries(f).filter(([, v]) => v.confirmed).map(([k]) => k),
       warnings_acknowledged: ev.checks.filter((c) => c.level === 'warning').map((c) => c.message),
       prepared_by: p.prepared_by, learned_aliases: learned,
@@ -521,6 +585,13 @@ export function approve(id: number, userId: number | null, opts: { acknowledgeWa
   });
   bumpVersion();
   return ref;
+}
+
+/** Godkända poster som pekade på en rättad/borttagen transaktion pekar vidare – inga hänvisningar till transaktioner som inte finns. */
+function relink(oldTx: number, ref: string, byProposal: number, what: string) {
+  for (const o of all<{ id: number; comment: string | null }>("SELECT id, comment FROM proposals WHERE result_ref=? AND id != ?", `transaction:${oldTx}`, byProposal)) {
+    run('UPDATE proposals SET result_ref=?, comment=? WHERE id=?', ref, `${o.comment ? o.comment + ' · ' : ''}${what} genom post #${byProposal}`, o.id);
+  }
 }
 
 export const dualControl = () => setting('dual_control', 'off') === 'on';

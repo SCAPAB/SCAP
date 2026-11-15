@@ -38,7 +38,13 @@ const TX_TYPES: Record<string, TxType> = {
 };
 const INS_TYPES: Record<string, string> = { aktie: 'EQUITY', equity: 'EQUITY', fond: 'FUND', fund: 'FUND', 'pe-fond': 'PE_FUND', pe_fund: 'PE_FUND', pe: 'PE_FUND' };
 
+/** Validerad transaktionsrad (för import via attest i Inkorgen). */
+export interface ValidRow { line: number; v: ReturnType<typeof validateTransaction>; fxGiven: boolean }
+
 export interface ImportResult {
+  /** Fyra ögon: importen ligger som förslag i Inkorgen och väntar på attest */
+  pendingApproval?: boolean;
+  document_id?: number;
   kind: string;
   rows: number;
   inserted: number;
@@ -47,7 +53,7 @@ export interface ImportResult {
   committed: boolean;
 }
 
-export function importCsv(kind: string, csv: string, opts: { dryRun: boolean; userId: number | null }): ImportResult {
+export function importCsv(kind: string, csv: string, opts: { dryRun: boolean; userId: number | null; collect?: ValidRow[] }): ImportResult {
   if (!(kind in IMPORT_KINDS)) throw new HttpError(400, 'Okänd importtyp');
   if (!csv.trim()) throw new HttpError(400, 'Filen är tom');
   const parsed = Papa.parse<Record<string, string>>(csv.replace(/^﻿/, ''), {
@@ -98,6 +104,7 @@ export function importCsv(kind: string, csv: string, opts: { dryRun: boolean; us
               outside_commitment: r['utjämningsränta'], recallable: r['återinkallningsbart'],
             });
             insertTransaction(v, opts.userId);
+            opts.collect?.push({ line, v, fxGiven: !!(r.valutakurs ?? '').trim() });
             preview = {
               rad: line, datum: v.trade_date, enhet: e.name, instrument: ins.name, typ: TX_LABELS[v.type], antal: v.quantity, kurs: v.price,
               belopp: displayAmount(v), avgift: v.fee, valuta: ins.currency, valutakurs: v.fx_rate,
