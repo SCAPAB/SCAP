@@ -1,0 +1,20 @@
+{
+  "namn": "Avgiften i ett stort kapitalanrop får inte belasta den befintliga portföljen",
+  "beskrivning": "Placerare 2026-11-15 fel 3. En räntefond om 1 000 andelar à 100 (100 000 kr, kursen oförändrad). PE-fonden anropar 2026-03-02: investering 980 000 + förvaltningsavgift 20 000 = 1 000 000 kr. Ingen NAV-rapport, så NAV = investeringsdelen 980 000. Portföljvärde per 2026-06-30 = 100 000 + 980 000 = 1 080 000 kr mot insatt 1 100 000 kr. Den enda förlusten är avgiften 20 000, och den uppstår på det nya kapitalet. Tidsviktad avkastning med flödet i början av dagen: 1 080 000 / 1 100 000 − 1 = −1,82 %. Private equity för sig: 980 000 / 1 000 000 − 1 = −2,00 %. Programmet lägger flödet i slutet av dagen och mäter avgiftsförlusten mot de 100 000 kr som fanns före anropet: (1 080 000 − 1 000 000) / 100 000 − 1 = −20 %.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "FUND", "name": "Testfond Kort Ränta", "currency": "SEK", "fund_category": "Räntefond", "asset_class": "FIXED_INCOME" }, "spara": "fond" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{fond}}", "type": "BUY", "trade_date": "2026-01-02", "quantity": 1000, "price": 100, "amount": 100000, "fee": 0 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{fond}}", "date": "2026-01-02", "price": 100 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{fond}}", "date": "2026-06-30", "price": 100 } },
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Buyout Avgift I", "currency": "SEK", "strategy": "Buyout", "vintage": 2026, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2026-01-02", "amount": 2000000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-03-02", "amount": 980000, "fee": 20000 } }
+  ],
+  "kontroller": [
+    { "namn": "Portföljvärde 1 080 000", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.marketValue", "forvantat": 1080000 },
+    { "namn": "Räntefondens avkastning 0 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "rows[key=FIXED_INCOME].returns[key=ALL].value", "forvantat": 0, "tolerans": 0.0001 },
+    { "namn": "Portföljens avkastning sedan start −1,82 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.returns[key=ALL].value", "forvantat": -0.018182, "tolerans": 0.0005, "kantFel": "Placerare 2026-11-15 fel 3: avgiften i anropet mäts mot portföljen före anropet (−20 %)" },
+    { "namn": "Private equity sedan start −2,00 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "rows[key=PRIVATE_EQUITY].returns[key=ALL].value", "forvantat": -0.02, "tolerans": 0.0005, "kantFel": "Placerare 2026-11-15 fel 3: avgiften i första anropet syns inte i avkastningen" }
+  ]
+}

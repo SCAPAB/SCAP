@@ -1,0 +1,16 @@
+{
+  "namn": "Inkorgen – manuellt registrerad post ska kunna godkännas utan AI (enheten ska vara vald)",
+  "beskrivning": "Placerare 2026-11-15 fel 5. Programmet förvaltar en juridisk enhet (id 1). Utan AI-nyckel laddas ett kapitalanrop upp och posten registreras manuellt så som gränssnittet gör: instrument och fält sätts, men gränssnittet har ingen kontroll för att välja investerare (det visar bara enhetens namn). Anrop 2026-03-01: totalt 105 000 kr varav avgift 5 000 → inbetalt 105 000, investering 100 000. Förväntat: posten får enheten automatiskt och kan godkännas. I dag ligger felet 'Välj juridisk enhet' kvar och posten går inte att godkänna i gränssnittet.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Manuell I", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-01-01", "amount": 1000000 } },
+    { "anrop": "POST /api/documents", "data": { "filename": "anrop-manuellt.pdf", "mime": "application/pdf", "data": "JVBERi0xLjQKJXRlc3RkYXRhIGZvciBzY2VuYXJpbyAxMAo=" }, "spara": "dok" },
+    { "anrop": "POST /api/documents/{{dok}}/proposals", "data": { "kind": "CALL" }, "spara": "post" },
+    { "anrop": "PUT /api/proposals/{{post}}", "data": { "instrument_id": "{{pe}}", "fields": { "date": "2026-03-01", "amount": 105000, "fee": 5000, "currency": "SEK" } } }
+  ],
+  "kontroller": [
+    { "namn": "Posten har programmets enda juridiska enhet", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].entity_id", "forvantat": 1, "kantFel": "Placerare 2026-11-15 fel 5: manuell post saknar enhet och enheten går inte att välja i gränssnittet" },
+    { "namn": "Posten kan godkännas", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].canApprove", "forvantat": true, "kantFel": "Placerare 2026-11-15 fel 5: 'Välj juridisk enhet' blockerar manuell post" }
+  ]
+}

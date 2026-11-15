@@ -1,0 +1,17 @@
+{
+  "namn": "Kapitalanrop som överstiger outnyttjat åtagande ska stoppas vid manuell registrering",
+  "beskrivning": "Placerare 2026-11-15 fel 7. Åtagande 300 000 EUR. Anrop 1 (2026-02-01): 250 000 EUR, outnyttjat 50 000. Ett felregistrerat anrop på 100 000 EUR (2026-04-01) överstiger outnyttjat åtagande med 50 000 och ska stoppas på samma sätt som en försäljning som överstiger innehavet (Inkorgen varnar redan). I dag sparas anropet tyst och outnyttjat visas som 0 i stället för −50 000, så felet syns inte. Förväntat efter att anropet stoppats: inbetalt 250 000, outnyttjat 50 000 EUR = 50 000 × 11,00 = 550 000 kr.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/fx", "data": { "currency": "EUR", "date": "2026-01-01", "rate": 11.0 } },
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Infra Överanrop", "currency": "EUR", "strategy": "Infrastruktur", "vintage": 2026, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2026-01-01", "amount": 300000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-02-01", "amount": 250000, "fee": 0 } },
+    { "beskrivning": "Anrop över outnyttjat åtagande stoppas", "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-04-01", "amount": 100000, "fee": 0 }, "forvantadStatus": 400, "felInnehaller": "åtagande", "kantFel": "Placerare 2026-11-15 fel 7: anrop över åtagandet sparas utan kontroll" }
+  ],
+  "kontroller": [
+    { "namn": "Inbetalt 250 000 EUR", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.paidIn", "forvantat": 250000, "kantFel": "Placerare 2026-11-15 fel 7: felregistrerat anrop bokas" },
+    { "namn": "Outnyttjat 50 000 EUR", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.uncalled", "forvantat": 50000, "kantFel": "Placerare 2026-11-15 fel 7: outnyttjat visas som 0 i stället för att felet stoppas" },
+    { "namn": "Outnyttjat under Likviditet 550 000 kr", "hamta": "GET /api/portfolio/liquidity?asOf={{datum}}", "falt": "uncalled", "forvantat": 550000, "kantFel": "Placerare 2026-11-15 fel 7: outnyttjat visas som 0 i stället för att felet stoppas" }
+  ]
+}

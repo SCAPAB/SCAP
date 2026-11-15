@@ -1,0 +1,19 @@
+{
+  "namn": "IRR för Total portfölj ska avse hela portföljen, inte bara de slutna fonderna",
+  "beskrivning": "Placerare 2026-11-15 fel 11. 2025-06-30: köp 1 000 aktier à 100 (100 000 kr) och kapitalanrop 100 000 kr (utan avgift) i en PE-fond. 2026-06-30: aktiekurs 150 (150 000 kr) och NAV-rapport 100 000 kr. Hela portföljen: 200 000 in, 250 000 värde efter exakt 365 dagar → IRR 25,0 %. PE-fonden för sig: 0 %. Raden 'Total portfölj' under Avkastning visar i dag PE-fondernas IRR (0 %) i kolumnen 'IRR sedan start'.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "EQUITY", "name": "Testbolaget IRR AB", "currency": "SEK", "country": "SE" }, "spara": "aktie" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2025-06-30", "quantity": 1000, "price": 100, "amount": 100000, "fee": 0 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-06-30", "price": 150 } },
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond IRR I", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-06-30", "amount": 500000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2025-06-30", "amount": 100000, "fee": 0 } },
+    { "anrop": "POST /api/valuations", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "date": "2026-06-30", "nav": 100000 } }
+  ],
+  "kontroller": [
+    { "namn": "Portföljvärde 250 000", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.value", "forvantat": 250000 },
+    { "namn": "Private equity IRR 0 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "rows[key=PRIVATE_EQUITY].irr", "forvantat": 0, "tolerans": 0.0005 },
+    { "namn": "Total portfölj IRR 25 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.irr", "forvantat": 0.25, "tolerans": 0.001, "kantFel": "Placerare 2026-11-15 fel 11: Total portfölj visar de slutna fondernas IRR" }
+  ]
+}

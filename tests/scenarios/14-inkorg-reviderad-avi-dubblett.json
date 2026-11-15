@@ -1,0 +1,17 @@
+{
+  "namn": "Inkorgen – reviderad avi för ett redan bokat kapitalanrop ska varna för dubblett",
+  "beskrivning": "Placerare 2026-11-15 fel 8. Kapitalanrop 2 i fonden är bokat 2026-04-10: investering 30 000 + avgift 2 000 = 32 000 kr. GP skickar en reviderad avi för samma anrop och samma dag: totalt 30 000 kr varav avgift 2 000 (investeringen sänkt till 28 000). Samma fond, samma typ och samma dag ska ge varningen 'Möjlig dubblett' även när beloppet skiljer sig, annars bokas anropet två gånger (inbetalt 62 000 i stället för 30 000). I dag visar kontrollen 'Ingen liknande transaktion finns sedan tidigare'.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Reviderad Avi I", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-01-01", "amount": 1000000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-04-10", "amount": 30000, "fee": 2000 } },
+    { "anrop": "POST /api/documents", "data": { "filename": "anrop2-reviderad.pdf", "mime": "application/pdf", "data": "JVBERi0xLjQKJXRlc3RkYXRhIGZvciBzY2VuYXJpbyAxNAo=" }, "spara": "dok" },
+    { "anrop": "POST /api/documents/{{dok}}/proposals", "data": { "kind": "CALL" }, "spara": "post" },
+    { "anrop": "PUT /api/proposals/{{post}}", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "fields": { "date": "2026-04-10", "amount": 30000, "fee": 2000, "currency": "SEK" } } }
+  ],
+  "kontroller": [
+    { "namn": "Varning för möjlig dubblett", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].checks", "innehaller": "Möjlig dubblett", "kantFel": "Placerare 2026-11-15 fel 8: dubblettkontrollen kräver samma belopp" },
+    { "namn": "Varningen måste kvitteras", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].needsAck", "forvantat": true, "kantFel": "Placerare 2026-11-15 fel 8: dubblettkontrollen kräver samma belopp" }
+  ]
+}

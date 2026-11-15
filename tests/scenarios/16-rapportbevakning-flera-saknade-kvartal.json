@@ -1,0 +1,16 @@
+{
+  "namn": "Rapportbevakning – förseningen räknas från den äldsta saknade kvartalsrapporten",
+  "beskrivning": "Placerare 2026-11-15 fel 10. Senaste NAV-rapport avser 2026-03-31. Rapporteringstid 90 dagar (standard). Per 2026-12-31 saknas rapporterna för 2026-06-30 (skulle ha kommit senast 2026-09-28) och 2026-09-30 (senast 2026-12-29). Fonden är alltså 2026-09-28 → 2026-12-31 = 94 dagar sen. I dag visas 2 dagar, räknat från den senaste kvartalsrapporten, vilket döljer att två rapporter saknas.",
+  "datum": "2026-12-31",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Sen Rapport I", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP Sen" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-06-01", "amount": 1000000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2025-09-01", "amount": 100000, "fee": 0 } },
+    { "anrop": "POST /api/valuations", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "date": "2026-03-31", "nav": 100000 } }
+  ],
+  "kontroller": [
+    { "namn": "Fonden är försenad", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[0].status", "forvantat": "overdue" },
+    { "namn": "Senaste rapport 2026-03-31", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[0].latest", "forvantat": "2026-03-31" },
+    { "namn": "94 dagar sen (från 2026-09-28)", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[0].daysLate", "forvantat": 94, "kantFel": "Placerare 2026-11-15 fel 10: förseningen räknas bara från den senaste kvartalsrapporten (2 dagar)" }
+  ]
+}

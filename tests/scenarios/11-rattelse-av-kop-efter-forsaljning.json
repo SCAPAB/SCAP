@@ -1,0 +1,18 @@
+{
+  "namn": "Rättelse eller borttag av ett köp får inte göra en senare försäljning större än innehavet",
+  "beskrivning": "Placerare 2026-11-15 fel 4. Köp 1 000 à 100 (2026-01-10), sälj 800 à 120 (2026-03-10) → innehav 200, realiserat 800 × (120 − 100) = 16 000. Att rätta köpet till 100 st, eller att ta bort köpet, skulle göra försäljningen av 800 st större än innehavet och ska stoppas. I dag går båda igenom: efter rättelsen blir innehavet 0 och realiserat 86 000, efter borttaget blir realiserat 96 000 (hela likviden som vinst).",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "EQUITY", "name": "Testbolaget Rättelse AB", "currency": "SEK", "country": "SE" }, "spara": "aktie" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2026-01-10", "quantity": 1000, "price": 100, "amount": 100000, "fee": 0 }, "spara": "kop" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "SELL", "trade_date": "2026-03-10", "quantity": 800, "price": 120, "amount": 96000, "fee": 0 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-06-30", "price": 130 } },
+    { "beskrivning": "Rättelse av köpet till 100 st stoppas", "anrop": "PUT /api/transactions/{{kop}}", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2026-01-10", "quantity": 100, "price": 100, "amount": 10000, "fee": 0 }, "forvantadStatus": 400, "felInnehaller": "överstiger", "kantFel": "Placerare 2026-11-15 fel 4: rättelse av köp kontrolleras inte mot senare försäljningar" },
+    { "beskrivning": "Borttag av köpet stoppas", "anrop": "DELETE /api/transactions/{{kop}}", "forvantadStatus": 409, "kantFel": "Placerare 2026-11-15 fel 4: borttag av köp kontrolleras inte mot senare försäljningar" }
+  ],
+  "kontroller": [
+    { "namn": "Innehavet är 200 st", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.quantity", "forvantat": 200, "kantFel": "Placerare 2026-11-15 fel 4: innehavet försvinner när köpet rättas eller tas bort" },
+    { "namn": "Realiserat resultat 16 000", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.realizedBase", "forvantat": 16000, "kantFel": "Placerare 2026-11-15 fel 4: realiserat blir 96 000" },
+    { "namn": "Marknadsvärde 200 × 130 = 26 000", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.mvBase", "forvantat": 26000, "kantFel": "Placerare 2026-11-15 fel 4: innehavet försvinner när köpet rättas eller tas bort" }
+  ]
+}

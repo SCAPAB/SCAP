@@ -1,0 +1,18 @@
+{
+  "namn": "PE-fond – förvaltningsavgifter i kapitalanrop ska redovisas som avgifter",
+  "beskrivning": "Placerare 2026-11-15 fel 9. Åtagande 1 000 000. Anrop 1 (2025-03-01): investering 280 000 + förvaltningsavgift 20 000. Anrop 2 (2026-03-01): investering 100 000 + förvaltningsavgift 15 000. Avgift utanför åtagandet (2026-04-01): 5 000. Inbetalt = 300 000 + 115 000 + 5 000 = 420 000. Avgifter som ligger utanför NAV = 20 000 + 15 000 + 5 000 = 40 000. Instrumentvyn visar 'Fees (utanför NAV)' från fältet fees, som i dag bara räknar avgiftstransaktionen (5 000) och inte förvaltningsavgifterna i anropen (35 000).",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Avgifter I", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-01-01", "amount": 1000000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2025-03-01", "amount": 280000, "fee": 20000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-03-01", "amount": 100000, "fee": 15000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "FEE", "trade_date": "2026-04-01", "amount": 5000 } }
+  ],
+  "kontroller": [
+    { "namn": "Inbetalt 420 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.paidIn", "forvantat": 420000 },
+    { "namn": "Outnyttjat 1 000 000 − 415 000 = 585 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.uncalled", "forvantat": 585000 },
+    { "namn": "NAV utan rapport = investeringsdelen 380 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.nav", "forvantat": 380000 },
+    { "namn": "Avgifter utanför NAV 40 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.fees", "forvantat": 40000, "kantFel": "Placerare 2026-11-15 fel 9: förvaltningsavgifter i kapitalanrop räknas inte som avgifter" }
+  ]
+}
