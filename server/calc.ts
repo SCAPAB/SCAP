@@ -503,10 +503,14 @@ export function valueSeries(data: PortfolioData, from: string, to: string, stepD
 /** Standardperiodernas startdagar per asOf. Delas av valueSeries (punkter i serien) och periodReturns. */
 export function periodStarts(asOf: string): { key: string; label: string; from: string }[] {
   const y = asOf.slice(0, 4);
+  // Samma dag n månader bakåt, begränsad till månadens sista dag: 2026-12-31 − 3 mån = 2026-09-30 och
+  // 2026-03-31 − 1 mån = 2026-02-28 (setUTCMonth skulle slå över till 2026-10-01 och 2026-03-03).
   const back = (months: number) => {
-    const d = new Date(asOf + 'T00:00:00Z');
-    d.setUTCMonth(d.getUTCMonth() - months);
-    return d.toISOString().slice(0, 10);
+    const [yy, mm, dd] = asOf.split('-').map(Number);
+    const first = new Date(Date.UTC(yy, mm - 1 - months, 1));
+    const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+    first.setUTCDate(Math.min(dd, lastDay));
+    return first.toISOString().slice(0, 10);
   };
   return [
     { key: '1M', label: '1 mån', from: back(1) },

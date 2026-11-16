@@ -1,0 +1,23 @@
+{
+  "namn": "\"1 mån\" och \"3 mån\" vid månadsslut börjar på föregående månads sista dag",
+  "beskrivning": "Granskning 2026-11-15, blockerande fynd 3 (F2). En aktie köps 2026-01-02, 1 000 st à 100. Kurser: 100 per 2026-02-28, 110 per 2026-03-02, 110 per 2026-03-31, 110 per 2026-09-30, 121 per 2026-10-01 och 121 per 2026-12-31. Per 2026-03-31 börjar \"1 mån\" 2026-02-28 (februari har ingen 31:a): 110 / 100 − 1 = 10 %. Börjar perioden i stället 2026-03-03 blir det 110 / 110 − 1 = 0 %. Per 2026-12-31 börjar \"3 mån\" 2026-09-30: 121 / 110 − 1 = 10 %. Börjar perioden i stället 2026-10-01 blir det 121 / 121 − 1 = 0 %. Sedan start per 2026-12-31: 121 / 100 − 1 = 21 %.",
+  "datum": "2026-12-31",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "EQUITY", "name": "Testbolaget Månadsslut", "currency": "SEK" }, "spara": "aktie" },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-01-02", "price": 100 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-02-28", "price": 100 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-03-02", "price": 110 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-03-31", "price": 110 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-09-30", "price": 110 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-10-01", "price": 121 } },
+    { "anrop": "POST /api/prices", "data": { "instrument_id": "{{aktie}}", "date": "2026-12-31", "price": 121 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2026-01-02", "quantity": 1000, "price": 100, "amount": 100000, "fee": 0 } }
+  ],
+  "kontroller": [
+    { "namn": "\"3 mån\" per 2026-12-31 börjar 2026-09-30", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.returns[key=3M].from", "forvantat": "2026-09-30" },
+    { "namn": "\"3 mån\" per 2026-12-31 är 10 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.returns[key=3M].value", "forvantat": 0.1, "tolerans": 0.0005 },
+    { "namn": "Sedan start per 2026-12-31 är 21 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.returns[key=ALL].value", "forvantat": 0.21, "tolerans": 0.0005 },
+    { "namn": "\"1 mån\" per 2026-03-31 börjar 2026-02-28", "hamta": "GET /api/portfolio/performance?asOf=2026-03-31", "falt": "total.returns[key=1M].from", "forvantat": "2026-02-28" },
+    { "namn": "\"1 mån\" per 2026-03-31 är 10 %", "hamta": "GET /api/portfolio/performance?asOf=2026-03-31", "falt": "total.returns[key=1M].value", "forvantat": 0.1, "tolerans": 0.0005 }
+  ]
+}

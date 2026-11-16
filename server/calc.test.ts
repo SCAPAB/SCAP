@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Market, listedHolding, peHolding, snapshot, valueSeries, periodReturns, portfolioIrr } from './calc.ts';
+import { Market, listedHolding, peHolding, snapshot, valueSeries, periodReturns, periodStarts, portfolioIrr } from './calc.ts';
 import { xirr } from './xirr.ts';
 import type { Instrument, Transaction } from '../shared/types.ts';
 
@@ -227,6 +227,20 @@ test('F2: tom portfölj ger ingen avkastning (null i stället för 0 %)', () => 
   const m = new Market({ prices: [], fx: [], valuations: [] });
   const s = valueSeries({ instruments: [], transactions: [], market: m }, '2026-06-30', '2026-06-30', 7);
   for (const p of periodReturns(s, '2026-06-30')) assert.equal(p.value, null, p.key);
+});
+
+test('F2 (granskning): "1 mån" och "3 mån" vid månadsslut börjar på föregående månads sista dag', () => {
+  const start = (asOf: string, key: string) => periodStarts(asOf).find((p) => p.key === key)!.from;
+  assert.equal(start('2026-12-31', '3M'), '2026-09-30');
+  assert.equal(start('2026-12-31', '1M'), '2026-11-30');
+  assert.equal(start('2026-03-31', '1M'), '2026-02-28');
+  assert.equal(start('2026-03-31', '3M'), '2025-12-31');
+  assert.equal(start('2028-03-31', '1M'), '2028-02-29');
+  assert.equal(start('2028-02-29', '1Y'), '2027-02-28');
+  // Mitt i månaden är det oförändrat samma dag
+  assert.equal(start('2026-09-30', '3M'), '2026-06-30');
+  assert.equal(start('2026-05-15', '1M'), '2026-04-15');
+  assert.equal(start('2026-05-15', '3Y'), '2023-05-15');
 });
 
 // ---------------------------------------------------------------------------
