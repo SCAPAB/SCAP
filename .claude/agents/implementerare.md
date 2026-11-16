@@ -36,8 +36,9 @@ Skriv `docs/agentfloden/forbattring/<ÅÅÅÅ-MM-DD>-3-leverans.md` och svara me
 ## Pull request
 När leveransfilen är commit:ad:
 1. Pusha grenen: `git push -u origin forbattring/<datum>`.
-2. Öppna en pull request mot `main` med `gh pr create --base main --head forbattring/<datum>`. Rubrik: `Förbättring <datum>: <godkända id>`. Beskrivningen ska innehålla länkar till förslagsfilen (med beslutet) och leveransfilen, en rad per förslag med status och vilka scenarier som blivit gröna, samt hur man provar ändringen.
-3. Svara med länken till pull requesten.
+2. Öppna en pull request mot `main` via GitHubs REST-API (GraphQL och därmed `gh pr create` fungerar inte i molnsessioner): skriv beskrivningen till en fil och kör `gh api repos/SCAPAB/SCAP/pulls -f base=main -f head=forbattring/<datum> -f title='…' -F body=@<fil>`. Rubrik: `Förbättring <datum>: <godkända id>`. Beskrivningen ska innehålla länkar till förslagsfilen (med beslutet) och leveransfilen, en rad per förslag med status och vilka scenarier som blivit gröna, samt hur man provar ändringen.
+   Avsluta beskrivningen med raderna `🤖 Generated with [Claude Code](https://claude.com/claude-code)` och sessionslänken om du har fått en.
+3. Svara med länken till pull requesten (`html_url` i svaret).
 
 Du får aldrig slå ihop, godkänna eller stänga pull requesten. Det gör en människa på GitHub. Spärren i `.claude/hooks/agentvakt.mjs` stoppar sådana försök.
 

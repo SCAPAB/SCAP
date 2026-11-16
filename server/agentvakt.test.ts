@@ -48,6 +48,11 @@ test('sammanslagning, godkännande och grenskydd görs av en människa', () => {
   assert.ok(bedom(bash('gh pr review 12 --approve'), m));
   assert.ok(bedom(bash('gh api -X PUT repos/o/r/pulls/12/merge'), m));
   assert.ok(bedom(bash('gh api -X DELETE repos/o/r/branches/main/protection'), m));
+  assert.ok(bedom(bash('gh api -X PUT repos/o/r/pulls/12/ccr/auto_merge'), m), 'automatisk sammanslagning');
+  assert.ok(bedom(bash('gh api repos/o/r/pulls/12/reviews -f event=APPROVE'), m), 'godkännande via REST');
+  assert.ok(bedom(bash('gh api -X PATCH repos/o/r/pulls/12 -f state=closed'), m), 'stänga pull request');
+  assert.equal(bedom(bash('gh api repos/o/r/pulls -f title=t -f head=x/2026-01-01 -f base=main -F body=@pr.md'), m), null, 'öppna pull request via REST');
+  assert.equal(bedom(bash('gh api repos/o/r/pulls/12/reviews -f event=COMMENT -f body=klar'), m), null);
   assert.equal(bedom(bash('gh api repos/o/r/branches/main/protection'), m), null, 'läsning är tillåten');
   assert.equal(bedom(bash('gh pr create --base main --head x/2026-01-01 --title t --body b'), m), null);
   assert.equal(bedom(bash('gh pr review 12 --comment -b "Granskning klar"'), m), null);

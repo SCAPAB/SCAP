@@ -73,7 +73,9 @@ function pushTillMain(seg, aktuellGren) {
 function sammanslagning(seg) {
   if (/\bgh\s+pr\s+merge\b/.test(seg)) return 'Pull requests slås ihop av en människa på GitHub, inte av en agent.';
   if (/\bgh\s+pr\s+review\b/.test(seg) && /(--approve|\s-a\b)/.test(seg)) return 'Pull requests godkänns av en människa på GitHub, inte av en agent.';
-  if (/\bgh\s+api\b/.test(seg) && /\/(merge|merges)\b/.test(seg)) return 'Sammanslagning görs av en människa på GitHub, inte via API:et.';
+  if (/\bgh\s+api\b/.test(seg) && /(\/|_)(merge|merges)\b/.test(seg)) return 'Sammanslagning görs av en människa på GitHub, inte via API:et.';
+  if (/\bgh\s+api\b/.test(seg) && /\/reviews\b/.test(seg) && /event=?\s*["']?APPROVE/i.test(seg)) return 'Pull requests godkänns av en människa på GitHub, inte av en agent.';
+  if (/\bgh\s+api\b/.test(seg) && /\/pulls\/\d+\b/.test(seg) && /state=?\s*["']?closed/i.test(seg)) return 'Pull requests stängs av en människa.';
   if (/\bgh\s+api\b/.test(seg) && /(\/protection|\/rulesets)\b/.test(seg) && !/^gh\s+api\s+(-X\s+GET\s+)?\S+$/.test(seg.trim())) return 'Grenskyddet ändras bara av en människa.';
   return null;
 }
