@@ -233,3 +233,36 @@ test('F3: utan registrerad kurs värderas innehavet med kursen från den senaste
   assert.equal(h2.fxSource, 'register');
   assert.equal(h2.fxDate, '2026-06-29');
 });
+
+// ---------------------------------------------------------------------------
+// F6 (förbättring 2026-11-15): kostnader utanför NAV i slutna fonder
+// ---------------------------------------------------------------------------
+
+test('F6: avgifter utanför NAV = avgifter i anrop + avgiftstransaktioner, inbetalt oförändrat', () => {
+  const pe = ins({ id: 8, type: 'PE_FUND', asset_class: 'PRIVATE_EQUITY' });
+  const m = new Market({ prices: [], fx: [], valuations: [] });
+  const txs = [
+    tx({ instrument_id: 8, type: 'COMMITMENT', amount: 1_000_000, trade_date: '2025-01-01' }),
+    tx({ instrument_id: 8, type: 'CALL', amount: 280_000, fee: 20_000, trade_date: '2025-03-01' }),
+    tx({ instrument_id: 8, type: 'CALL', amount: 100_000, fee: 15_000, trade_date: '2026-03-01' }),
+    tx({ instrument_id: 8, type: 'FEE', amount: 5_000, trade_date: '2026-04-01' }),
+  ];
+  const h = peHolding(pe, 1, txs, m, '2026-06-30');
+  close(h.fees, 40_000);
+  close(h.paidIn, 420_000);
+  close(h.uncalled, 585_000);
+  close(h.nav, 380_000);
+});
+
+test('F6: utdelning med källskatt minskar framräknat NAV med bruttobeloppet', () => {
+  const pe = ins({ id: 9, type: 'PE_FUND', asset_class: 'PRIVATE_EQUITY' });
+  const m = new Market({ prices: [], fx: [], valuations: [{ entity_id: 1, instrument_id: 9, date: '2026-03-31', nav: 500_000 }] });
+  const txs = [
+    tx({ instrument_id: 9, type: 'COMMITMENT', amount: 1_000_000, trade_date: '2025-01-01' }),
+    tx({ instrument_id: 9, type: 'CALL', amount: 450_000, trade_date: '2025-03-01' }),
+    tx({ instrument_id: 9, type: 'DISTRIBUTION', amount: 100_000, fee: 10_000, trade_date: '2026-05-01' }),
+  ];
+  const h = peHolding(pe, 1, txs, m, '2026-06-30');
+  close(h.nav, 400_000);
+  close(h.distributed, 90_000);
+});

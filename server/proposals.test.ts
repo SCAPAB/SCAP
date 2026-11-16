@@ -104,6 +104,22 @@ test('NAV med avstämning mot kapitalkontot', () => {
   assert.equal(db.get<{ nav: number }>('SELECT nav FROM pe_valuations WHERE entity_id=1 AND instrument_id=1')!.nav, 120_000);
 });
 
+test('F6: avstämning – GP:s inbetalt utan utjämningsränta godtas och förklaras', () => {
+  db.run("INSERT INTO instruments (id, type, name, isin, currency) VALUES (3, 'PE_FUND', 'Nordic Infra Partners I', NULL, 'SEK')");
+  db.run("INSERT INTO transactions (entity_id, instrument_id, type, trade_date, amount) VALUES (1, 3, 'COMMITMENT', '2024-01-01', 500000)");
+  // Bokfört inbetalt 75 000 + 6 000 = 81 000, varav 1 000 utanför åtagandet (utjämningsränta)
+  db.run("INSERT INTO transactions (entity_id, instrument_id, type, trade_date, amount, fee, outside_commitment) VALUES (1, 3, 'CALL', '2024-03-01', 75000, 6000, 1000)");
+  const [p] = newDoc([item({
+    kind: 'NAV', instrument_name: F('Nordic Infra Partners I'), investor_label: F('Alfa AB'), date: F('2024-06-30'), currency: F('SEK'),
+    amount: F(78_000), paid_in_total: F(80_000),
+  })]);
+  const ev = P.evaluate(p, p.document_id);
+  const rec = ev.checks.find((c) => c.code === 'rec_Inbetalt');
+  assert.equal(rec?.level, 'ok', JSON.stringify(ev.checks));
+  assert.match(rec!.message, /exklusive utjämningsränta 1[\s\u00a0]000/);
+  assert.ok(!ev.checks.some((c) => c.level === 'warning'), JSON.stringify(ev.checks.filter((c) => c.level === 'warning')));
+});
+
 test('namnmatchning skiljer på fondnummer', () => {
   assert.equal(P.nameScore('Nordic Buyout Partners V', 'Nordic Buyout Partners IV'), 0);
   assert.ok(P.nameScore('Nordic Buyout Partners IV SCSp', 'Nordic Buyout Partners IV') > 0.9);

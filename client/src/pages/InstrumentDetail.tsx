@@ -138,7 +138,7 @@ export default function InstrumentDetail() {
               {ins.sector && <><dt>{ins.type === 'EQUITY' ? 'Bransch' : 'Inriktning'}</dt><dd>{ins.sector}</dd></>}
               {!pe && <><dt>Morningstar</dt><dd>{(ins as Instrument & { ms_listing?: string | null }).ms_listing ?? <span className="muted">ej kopplad</span>}</dd></>}
               {h && !pe && <><div className="sep" /><dt>Kursdatum</dt><dd>{h.priceDate ?? '–'}</dd><dt>Realiserat SEK</dt><dd>{fmt.sek(h.realizedBase)}</dd></>}
-              {h && pe && <><div className="sep" /><dt>Senaste NAV-rapport</dt><dd>{h.navReportDate ?? '–'}</dd><dt>Fees (utanför NAV)</dt><dd>{fmt.num(h.fees)}</dd></>}
+              {h && pe && <><div className="sep" /><dt>Senaste NAV-rapport</dt><dd>{h.navReportDate ?? '–'}</dd><dt>Avgifter (utanför NAV)</dt><dd>{fmt.num(h.fees)}</dd></>}
             </dl>
           </div>
         </div>

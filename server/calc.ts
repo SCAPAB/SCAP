@@ -7,6 +7,8 @@
  *    Anskaffningsvärdet i SEK räknas med valutakursen på respektive affärsdag.
  *  - PE-fonder: senast rapporterade NAV rullas fram med kapitalanrop och utdelningar
  *    efter rapportdatum. Saknas NAV används inbetalt minus utdelat (värdering till kostnad).
+ *    Utdelningar minskar NAV med bruttobeloppet. Avgifter utanför NAV (fees) = avgiftsdelen i
+ *    kapitalanrop + avgiftstransaktioner.
  *  - Avkastning för portföljen: tidsviktad (TWR), bruten vid varje transaktionsdag. Nettoinflöden räknas
  *    från dagens början och nettoutflöden vid dagens slut (se valueSeries).
  */
@@ -245,6 +247,7 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
   let rollForward = 0; // flöden efter senaste NAV-rapport
   let drawnOnCommitment = 0; // anropat som minskar åtagandet
   let recallable = 0; // återinkallningsbara utdelningar som återställer åtagandet
+  let feeTx = 0; // avgiftstransaktioner (utanför åtagandet)
   for (const t of sorted) {
     const amt = t.amount + (t.type === 'COMMITMENT' ? 0 : t.fee);
     switch (t.type) {
@@ -254,6 +257,7 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
       case 'CALL':
         // amount = investering (ökar NAV), fee = förvaltningsavgift/kostnader (ingår i inbetalt men inte i NAV)
         h.called += amt;
+        h.fees += t.fee; // avgiftsdelen i anropet ligger utanför NAV
         drawnOnCommitment += amt - (t.outside_commitment ?? 0);
         h.paidInBase += amt * t.fx_rate;
         h.flowsLocal.push({ date: t.trade_date, amount: -amt });
@@ -262,6 +266,7 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
         break;
       case 'FEE':
         h.fees += amt;
+        feeTx += amt;
         h.paidInBase += amt * t.fx_rate;
         h.flowsLocal.push({ date: t.trade_date, amount: -amt });
         h.flowsBase.push({ date: t.trade_date, amount: -amt * t.fx_rate });
@@ -273,7 +278,8 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
         h.distributedBase += net * t.fx_rate;
         h.flowsLocal.push({ date: t.trade_date, amount: net });
         h.flowsBase.push({ date: t.trade_date, amount: net * t.fx_rate });
-        if (!val || t.trade_date > val.date) rollForward -= net;
+        // Fonden har delat ut bruttobeloppet; källskatt och andra avdrag är investerarens kostnad
+        if (!val || t.trade_date > val.date) rollForward -= t.amount;
         break;
       }
     }
@@ -282,7 +288,7 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
   h.fx = fx.fx;
   h.fxDate = fx.fxDate;
   h.fxSource = fx.fxSource;
-  h.paidIn = h.called + h.fees;
+  h.paidIn = h.called + feeTx;
   // Får bli negativt på instrumentnivå så att äldre överanrop syns. Summeringar använder exposureUncalled.
   h.uncalled = h.commitment - drawnOnCommitment + recallable;
   h.calledPct = h.commitment > EPS ? drawnOnCommitment / h.commitment : null;

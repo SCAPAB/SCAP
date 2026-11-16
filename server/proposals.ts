@@ -325,7 +325,7 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
       if (kind === 'NAV' && amount != null) {
         const prev = all<{ date: string; nav: number }>('SELECT date, nav FROM pe_valuations WHERE entity_id=? AND instrument_id=? AND date < ? ORDER BY date DESC LIMIT 1', ent.id, ins.id, date)[0];
         if (prev) {
-          const flows = txs.filter((t) => t.trade_date > prev.date && t.trade_date <= date).reduce((a, t) => a + (t.type === 'CALL' ? t.amount : t.type === 'DISTRIBUTION' ? -(t.amount - t.fee) : 0), 0);
+          const flows = txs.filter((t) => t.trade_date > prev.date && t.trade_date <= date).reduce((a, t) => a + (t.type === 'CALL' ? t.amount : t.type === 'DISTRIBUTION' ? -t.amount : 0), 0);
           const expected = prev.nav + flows;
           const chg = expected > 0 ? amount / expected - 1 : null;
           if (chg != null && Math.abs(chg) > 0.25) checks.push({ level: 'warning', code: 'nav_jump', message: `NAV avviker ${fmt(chg * 100, 1)} % från förra rapporten (${prev.date}) justerad för flöden` });
@@ -338,10 +338,14 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
           ['Utdelat', num(fields.distributed_total), before.distributed],
           ['Outnyttjat', num(fields.unfunded), before.uncalled],
         ];
+        // GP redovisar ofta inbetalt utan utjämningsränta och liknande som ligger utanför åtagandet
+        const outside = txs.filter((t) => t.type === 'CALL' && t.trade_date <= date).reduce((a, t) => a + (t.outside_commitment ?? 0), 0);
+        const near = (docV: number, book: number) => Math.abs(docV - book) <= Math.max(1, Math.abs(book) * 0.001);
         for (const [label, docV, book] of rec) {
           if (docV == null) continue;
           const diff = docV - book;
-          if (Math.abs(diff) <= Math.max(1, Math.abs(book) * 0.001)) checks.push({ level: 'ok', code: `rec_${label}`, message: `${label} stämmer med bokföringen (${fmt(book)})` });
+          if (near(docV, book)) checks.push({ level: 'ok', code: `rec_${label}`, message: `${label} stämmer med bokföringen (${fmt(book)})` });
+          else if (label === 'Inbetalt' && outside > 0 && near(docV, book - outside)) checks.push({ level: 'ok', code: `rec_${label}`, message: `Inbetalt stämmer exklusive utjämningsränta ${fmt(outside)} (bokfört ${fmt(book)} inklusive utjämningsränta)` });
           else checks.push({ level: 'warning', code: `rec_${label}`, message: `${label}: dokumentet ${fmt(docV)}, bokfört ${fmt(book)} – differens ${fmt(diff)}` });
         }
       }

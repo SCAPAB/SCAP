@@ -13,6 +13,6 @@
     { "namn": "Inbetalt 420 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.paidIn", "forvantat": 420000 },
     { "namn": "Outnyttjat 1 000 000 − 415 000 = 585 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.uncalled", "forvantat": 585000 },
     { "namn": "NAV utan rapport = investeringsdelen 380 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.nav", "forvantat": 380000 },
-    { "namn": "Avgifter utanför NAV 40 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.fees", "forvantat": 40000, "kantFel": "Placerare 2026-11-15 fel 9: förvaltningsavgifter i kapitalanrop räknas inte som avgifter" }
+    { "namn": "Avgifter utanför NAV 40 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.fees", "forvantat": 40000 }
   ]
 }
