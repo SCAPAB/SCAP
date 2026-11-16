@@ -6,6 +6,10 @@
  * ögon är påslaget kan en sådan transaktion inte ändras eller tas bort direkt, inte heller av en
  * administratör (409). Den som vill rätta skickar en ändringsbegäran, och ändringen genomförs först när
  * en annan användare har attesterat den. Allt loggas i audit_log med båda användarna.
+ *
+ * Attest och ändringsbegäran pekar på transaktionens id. Id:t återanvänds aldrig (AUTOINCREMENT, se
+ * migrateTransactionIds i db.ts), så en ny transaktion ärver aldrig en borttagen transaktions attest eller
+ * historik. Varje ändringsbegäran sparar dessutom sitt eget förevärde (before_value) och visar det.
  */
 import { Router, type Request } from 'express';
 import { all, get, run, tx, audit } from './db.ts';
@@ -71,7 +75,7 @@ export function assertTransactionDeletable(cur: Transaction) {
 // ---------------------------------------------------------------------------
 
 interface ChangeRequestRow {
-  id: number; transaction_id: number; action: 'update' | 'delete'; payload: string | null; requested_by: number | null; requested_at: string;
+  id: number; transaction_id: number; action: 'update' | 'delete'; payload: string | null; before_value: string | null; requested_by: number | null; requested_at: string;
   status: 'pending' | 'approved' | 'rejected'; decided_by: number | null; decided_at: string | null; comment: string | null;
 }
 
@@ -89,8 +93,13 @@ export function createChangeRequest(transactionId: number, userId: number | null
     after = prepareTransactionUpdate(cur, body.payload as Record<string, unknown>);
   } else assertTransactionDeletable(cur);
   const comment = String(body.comment ?? '').trim().slice(0, 500) || null;
-  const r = run('INSERT INTO change_requests (transaction_id, action, payload, requested_by, comment) VALUES (?,?,?,?,?)',
-    transactionId, action, after ? JSON.stringify(after) : null, userId, comment);
+  // Förevärdet sparas på begäran, så att den alltid visar transaktionen som den såg ut när begäran skapades
+  const before = get(
+    `SELECT t.*, i.name instrument_name, i.currency, e.name entity_name FROM transactions t
+     JOIN instruments i ON i.id=t.instrument_id JOIN entities e ON e.id=t.entity_id WHERE t.id=?`, transactionId,
+  ) ?? cur;
+  const r = run('INSERT INTO change_requests (transaction_id, action, payload, before_value, requested_by, comment) VALUES (?,?,?,?,?,?)',
+    transactionId, action, after ? JSON.stringify(after) : null, JSON.stringify(before), userId, comment);
   const id = Number(r.lastInsertRowid);
   audit(userId, 'create', 'change_request', id, { transaction_id: transactionId, action, before: cur, after, comment });
   return id;
@@ -141,14 +150,20 @@ export function listChangeRequests(status: string) {
      ${where} ORDER BY c.id DESC LIMIT 500`,
     ...(status === 'all' ? [] : [status]),
   );
-  return rows.map((c) => ({
+  // Begäran visar sitt eget sparade förevärde, aldrig den aktuella raden (som kan ha ändrats eller tagits bort)
+  return rows.map(({ before_value, ...c }) => ({
     ...c,
     payload: c.payload ? JSON.parse(c.payload) : null,
-    transaction: get(
-      `SELECT t.*, i.name instrument_name, i.currency, e.name entity_name FROM transactions t
-       JOIN instruments i ON i.id=t.instrument_id JOIN entities e ON e.id=t.entity_id WHERE t.id=?`, c.transaction_id,
-    ) ?? null,
+    transaction: before_value ? withNames(JSON.parse(before_value) as Transaction & { instrument_name?: string }) : null,
   }));
+}
+
+/** Kompletterar ett förevärde som saknar namn (begäranden från före F9-rättelsen, hämtade ur audit_log). */
+function withNames(t: Transaction & { instrument_name?: string }) {
+  if (t.instrument_name !== undefined) return t;
+  const i = get<{ name: string; currency: string }>('SELECT name, currency FROM instruments WHERE id=?', t.instrument_id);
+  const e = get<{ name: string }>('SELECT name FROM entities WHERE id=?', t.entity_id);
+  return { ...t, instrument_name: i?.name ?? null, currency: i?.currency ?? null, entity_name: e?.name ?? null };
 }
 
 // ---------------------------------------------------------------------------

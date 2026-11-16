@@ -1,0 +1,35 @@
+{
+  "namn": "Fyra ögon – en ny transaktion ärver aldrig attest eller historik från en borttagen",
+  "beskrivning": "Granskning 2026-11-15, blockerande fynd 2 (F9). Fyra ögon är påslaget. Ett kapitalanrop skapas via Inkorgen från en avi på 105 000 varav avgift 5 000 (transaktionen: investering 100 000 och avgift 5 000, som i scenario 22), granskas av administratören och attesteras av en annan användare. Anropet tas sedan bort via en attesterad ändringsbegäran. Därefter registreras ett nytt anrop om 40 000 direkt via Ny transaktion av en enda person. Det nya anropet är inte attesterat: det ska kunna ändras direkt (till 45 000) och visas inte som attesterat eller med väntande ändringsbegäran. Ändringsbegäran ska fortfarande visa den borttagna transaktionens värden (100 000 och avgift 5 000), inte det nya anropets. Inbetalt per 2026-06-30 = 45 000 och outnyttjat = 1 000 000 − 45 000 = 955 000.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "PUT /api/settings", "data": { "dual_control": true } },
+    { "anrop": "POST /api/users", "data": { "email": "attestant@test.invalid", "name": "Test Attestant", "role": "editor", "password": "attest-12345" } },
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Återanvänt Id I", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-01-01", "amount": 1000000 } },
+    { "anrop": "POST /api/documents", "data": { "filename": "anrop-aterbruk.pdf", "mime": "application/pdf", "data": "JVBERi0xLjQKJXRlc3RkYXRhIGZvciBzY2VuYXJpbyAyNQo=" }, "spara": "dok" },
+    { "anrop": "POST /api/documents/{{dok}}/proposals", "data": { "kind": "CALL" }, "spara": "post" },
+    { "anrop": "PUT /api/proposals/{{post}}", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "fields": { "date": "2026-03-01", "amount": 105000, "fee": 5000, "currency": "SEK" } } },
+    { "beskrivning": "Administratören granskar", "anrop": "POST /api/proposals/{{post}}/prepare", "data": {} },
+    { "beskrivning": "Attestanten loggar in", "anrop": "POST /api/auth/login", "data": { "email": "attestant@test.invalid", "password": "attest-12345" } },
+    { "beskrivning": "Attestanten godkänner anropet", "anrop": "POST /api/proposals/{{post}}/approve", "data": {} },
+    { "beskrivning": "Administratören loggar in igen", "anrop": "POST /api/auth/login", "data": { "email": "admin@innehav.local", "password": "innehav" } },
+    { "beskrivning": "Administratören begär borttag av det attesterade anropet", "anrop": "POST /api/transactions/2/change-requests", "data": { "action": "delete", "comment": "Felaktig avi" }, "spara": "begaran" },
+    { "beskrivning": "Attestanten loggar in", "anrop": "POST /api/auth/login", "data": { "email": "attestant@test.invalid", "password": "attest-12345" } },
+    { "beskrivning": "Attestanten attesterar borttaget", "anrop": "POST /api/change-requests/{{begaran}}/approve", "data": {} },
+    { "beskrivning": "Administratören loggar in igen", "anrop": "POST /api/auth/login", "data": { "email": "admin@innehav.local", "password": "innehav" } },
+    { "beskrivning": "Ett nytt anrop registreras direkt av en person", "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-04-01", "amount": 40000, "fee": 0 }, "spara": "ny" },
+    { "beskrivning": "Det nya anropet är inte attesterat och kan ändras direkt", "anrop": "PUT /api/transactions/{{ny}}", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-04-01", "amount": 45000, "fee": 0 } }
+  ],
+  "kontroller": [
+    { "namn": "Det nya anropet har ett id som aldrig har använts (3)", "hamta": "GET /api/transactions?instrument={{pe}}&type=CALL", "falt": "[0].id", "forvantat": 3, "tolerans": 0 },
+    { "namn": "Det nya anropet visas inte som attesterat", "hamta": "GET /api/transactions?instrument={{pe}}&type=CALL", "falt": "[0].attested", "forvantat": 0, "tolerans": 0 },
+    { "namn": "Det nya anropet har ingen väntande ändringsbegäran", "hamta": "GET /api/transactions?instrument={{pe}}&type=CALL", "falt": "[0].pending_change_id", "forvantat": null },
+    { "namn": "Ändringsbegäran gäller transaktion 2", "hamta": "GET /api/change-requests?status=all", "falt": "[0].transaction_id", "forvantat": 2, "tolerans": 0 },
+    { "namn": "Ändringsbegäran visar det borttagna anropets belopp 100 000", "hamta": "GET /api/change-requests?status=all", "falt": "[0].transaction.amount", "forvantat": 100000, "tolerans": 0 },
+    { "namn": "Ändringsbegäran visar det borttagna anropets avgift 5 000", "hamta": "GET /api/change-requests?status=all", "falt": "[0].transaction.fee", "forvantat": 5000, "tolerans": 0 },
+    { "namn": "Ändringsbegäran visar instrumentets namn", "hamta": "GET /api/change-requests?status=all", "falt": "[0].transaction.instrument_name", "forvantat": "Testfond Återanvänt Id I" },
+    { "namn": "Inbetalt 45 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.paidIn", "forvantat": 45000 },
+    { "namn": "Outnyttjat 955 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.uncalled", "forvantat": 955000 }
+  ]
+}

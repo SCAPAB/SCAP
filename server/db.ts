@@ -33,6 +33,59 @@ function migrate(d: DatabaseSync) {
   if (!pr.includes('prepared_at')) d.exec('ALTER TABLE proposals ADD COLUMN prepared_at TEXT');
   const v = cols('pe_valuations');
   if (!v.includes('document_id')) d.exec('ALTER TABLE pe_valuations ADD COLUMN document_id INTEGER REFERENCES documents(id)');
+  const cr = cols('change_requests');
+  if (!cr.includes('before_value')) {
+    d.exec('ALTER TABLE change_requests ADD COLUMN before_value TEXT');
+    // Befintliga begäranden får förevärdet från audit_log, där det sparades när begäran skapades
+    d.exec(`UPDATE change_requests SET before_value = (
+      SELECT json_extract(a.details, '$.before') FROM audit_log a
+      WHERE a.object = 'change_request' AND a.action = 'create' AND a.object_id = CAST(change_requests.id AS TEXT) ORDER BY a.id LIMIT 1)`);
+  }
+  migrateTransactionIds(d);
+}
+
+/**
+ * F9: transactions.id får AUTOINCREMENT, så att ett id aldrig återanvänds efter ett borttag. Attest
+ * (proposals.result_ref), ändringsbegäran (change_requests.transaction_id) och audit_log pekar på id:t,
+ * och en ny transaktion får därför aldrig ärva en borttagen transaktions attest eller historik.
+ * SQLite kan inte lägga till AUTOINCREMENT på en befintlig tabell, så tabellen byggs om med samma
+ * kolumner, data och index. Räknaren sätts till det högsta id som någonsin har använts, också id för
+ * transaktioner som redan har tagits bort.
+ */
+function migrateTransactionIds(d: DatabaseSync) {
+  const table = d.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'").get() as { sql: string } | undefined;
+  if (!table || /AUTOINCREMENT/i.test(table.sql)) return;
+  const createSql = table.sql
+    .replace(/^CREATE TABLE\s+("?)transactions\1/i, 'CREATE TABLE transactions_new')
+    .replace(/\bid\s+INTEGER\s+PRIMARY\s+KEY\b/i, 'id INTEGER PRIMARY KEY AUTOINCREMENT');
+  if (!createSql.startsWith('CREATE TABLE transactions_new') || !/AUTOINCREMENT/.test(createSql)) {
+    throw new Error('Migreringen av transactions (AUTOINCREMENT) kunde inte tolka tabellens definition');
+  }
+  const indexes = (d.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='transactions' AND sql IS NOT NULL").all() as { sql: string }[]).map((r) => r.sql);
+  d.exec('PRAGMA foreign_keys = OFF');
+  try {
+    d.exec('BEGIN');
+    try {
+      d.exec(createSql);
+      d.exec('INSERT INTO transactions_new SELECT * FROM transactions');
+      d.exec('DROP TABLE transactions');
+      d.exec('ALTER TABLE transactions_new RENAME TO transactions');
+      for (const sql of indexes) d.exec(sql);
+      const hi = d.prepare(`SELECT MAX(x) m FROM (
+        SELECT MAX(id) x FROM transactions
+        UNION ALL SELECT MAX(CAST(substr(result_ref, 13) AS INTEGER)) FROM proposals WHERE result_ref LIKE 'transaction:%'
+        UNION ALL SELECT MAX(transaction_id) FROM change_requests
+        UNION ALL SELECT MAX(CAST(object_id AS INTEGER)) FROM audit_log WHERE object = 'transaction')`).get() as { m: number | null };
+      d.exec("DELETE FROM sqlite_sequence WHERE name IN ('transactions', 'transactions_new')");
+      if (hi.m) d.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('transactions', ?)").run(hi.m);
+      d.exec('COMMIT');
+    } catch (e) {
+      d.exec('ROLLBACK');
+      throw e;
+    }
+  } finally {
+    d.exec('PRAGMA foreign_keys = ON');
+  }
 }
 
 export const db = openDb();

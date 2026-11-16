@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS instruments (
 -- Noterat (EQUITY/FUND): BUY, SELL, DIVIDEND, FEE
 -- PE_FUND: COMMITMENT, CALL (kapitalanrop), DISTRIBUTION (utdelning/återbetalning), FEE (avgift utanför åtagandet)
 CREATE TABLE IF NOT EXISTS transactions (
-  id            INTEGER PRIMARY KEY,
+  id            INTEGER PRIMARY KEY AUTOINCREMENT, -- id återanvänds aldrig: attest och ändringshistorik följer id:t (F9)
   entity_id     INTEGER NOT NULL REFERENCES entities(id),
   instrument_id INTEGER NOT NULL REFERENCES instruments(id),
   type          TEXT NOT NULL CHECK (type IN ('BUY','SELL','DIVIDEND','FEE','COMMITMENT','CALL','DISTRIBUTION')),
@@ -199,6 +199,7 @@ CREATE TABLE IF NOT EXISTS change_requests (
   transaction_id INTEGER NOT NULL,          -- ingen främmande nyckel: begäran finns kvar för spårbarhet efter ett borttag
   action         TEXT NOT NULL CHECK (action IN ('update','delete')),
   payload        TEXT,
+  before_value   TEXT,                      -- transaktionen när begäran skapades (JSON), visas i stället för den aktuella raden
   requested_by   INTEGER REFERENCES users(id),
   requested_at   TEXT NOT NULL DEFAULT (datetime('now')),
   status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
