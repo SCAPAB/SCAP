@@ -11,6 +11,8 @@
   "kontroller": [
     { "namn": "Fonden är försenad", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[0].status", "forvantat": "overdue" },
     { "namn": "Senaste rapport 2026-03-31", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[0].latest", "forvantat": "2026-03-31" },
-    { "namn": "94 dagar sen (från 2026-09-28)", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[0].daysLate", "forvantat": 94, "kantFel": "Placerare 2026-11-15 fel 10: förseningen räknas bara från den senaste kvartalsrapporten (2 dagar)" }
+    { "namn": "94 dagar sen (från 2026-09-28)", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[0].daysLate", "forvantat": 94 },
+    { "namn": "Två rapporter saknas", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[0].missing", "forvantat": 2 },
+    { "namn": "Äldsta saknade rapport avser 2026-06-30", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[0].oldestMissing", "forvantat": "2026-06-30" }
   ]
 }

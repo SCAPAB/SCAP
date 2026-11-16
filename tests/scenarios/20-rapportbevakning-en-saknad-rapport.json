@@ -1,0 +1,22 @@
+{
+  "namn": "Rapportbevakning – en saknad rapport och en mottagen (placerarens kontroll per 2026-09-30)",
+  "beskrivning": "Förbättring 2026-11-15, F8. Rapporteringstid 90 dagar (standard). Fond F har senaste rapport 2026-03-31. Rapporten för 2026-06-30 skulle ha kommit senast 2026-06-30 + 90 = 2026-09-28, så per 2026-09-30 är F försenad 2 dagar och en rapport saknas. Rapporten för 2026-09-30 är inte förfallen (2026-12-29). Fond G har rapporten för 2026-06-30, som är det senaste kvartalet före 2026-09-30, och räknas som mottagen.",
+  "datum": "2026-09-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond F Rapport", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP F" }, "spara": "f" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{f}}", "type": "COMMITMENT", "trade_date": "2025-06-01", "amount": 1000000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{f}}", "type": "CALL", "trade_date": "2025-09-01", "amount": 100000, "fee": 0 } },
+    { "anrop": "POST /api/valuations", "data": { "entity_id": 1, "instrument_id": "{{f}}", "date": "2026-03-31", "nav": 100000 } },
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond G Rapport", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP G" }, "spara": "g" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{g}}", "type": "COMMITMENT", "trade_date": "2025-06-01", "amount": 1000000 } },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{g}}", "type": "CALL", "trade_date": "2025-09-01", "amount": 100000, "fee": 0 } },
+    { "anrop": "POST /api/valuations", "data": { "entity_id": 1, "instrument_id": "{{g}}", "date": "2026-06-30", "nav": 105000 } }
+  ],
+  "kontroller": [
+    { "namn": "F är försenad", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[fund=Testfond F Rapport].status", "forvantat": "overdue" },
+    { "namn": "F är 2 dagar sen (från 2026-09-28)", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[fund=Testfond F Rapport].daysLate", "forvantat": 2 },
+    { "namn": "F saknar en rapport", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[fund=Testfond F Rapport].missing", "forvantat": 1 },
+    { "namn": "G är mottagen", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[fund=Testfond G Rapport].status", "forvantat": "received" },
+    { "namn": "G saknar inga rapporter", "hamta": "GET /api/portfolio/reporting?asOf={{datum}}", "falt": "rows[fund=Testfond G Rapport].missing", "forvantat": 0 }
+  ]
+}

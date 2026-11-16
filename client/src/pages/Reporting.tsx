@@ -3,7 +3,7 @@ import { useApp, useFetch } from '../context';
 import { DataTable, ErrorBox, Kpi, Loading } from '../components/ui';
 import { ASSET_CLASS_LABEL, type AssetClass } from '../../../shared/types';
 
-interface Row { entityId: number; entity: string; instrumentId: number; fund: string; manager: string | null; assetClass: AssetClass; latest: string | null; documentId: number | null; status: 'received' | 'awaiting' | 'overdue'; daysLate: number }
+interface Row { entityId: number; entity: string; instrumentId: number; fund: string; manager: string | null; assetClass: AssetClass; latest: string | null; documentId: number | null; status: 'received' | 'awaiting' | 'overdue'; daysLate: number; missing: number; oldestMissing: string | null }
 interface Resp { asOf: string; latestQuarter: string; due: string; lag: number; rows: Row[] }
 
 const ST = {
@@ -47,7 +47,12 @@ export default function Reporting() {
             { key: 'm', label: 'Förvaltare (GP)', sortValue: (r) => r.manager, render: (r) => r.manager ?? '–' },
             { key: 'l', label: 'Senaste NAV', sortValue: (r) => r.latest, render: (r) => r.latest ?? <span className="muted">saknas</span> },
             { key: 'd', label: 'Underlag', render: (r) => (r.documentId ? <Link to={`/inkorg/${r.documentId}`}>Dokument</Link> : <span className="muted small">ej uppladdat</span>) },
-            { key: 's', label: 'Status', sortValue: (r) => r.status, render: (r) => <span className={'badge ' + ST[r.status].c}>{ST[r.status].t}{r.status === 'overdue' ? ` (${r.daysLate} d)` : ''}</span> },
+            { key: 's', label: 'Status', sortValue: (r) => r.status, render: (r) => (
+              <div className="name-cell">
+                <span className={'badge ' + ST[r.status].c}>{ST[r.status].t}</span>
+                {r.status === 'overdue' && <span className="sub" title={`Äldsta saknade rapport avser ${r.oldestMissing}`}>{r.missing} {r.missing === 1 ? 'rapport saknas' : 'rapporter saknas'} · {r.daysLate} {r.daysLate === 1 ? 'dag' : 'dagar'}</span>}
+              </div>
+            ) },
           ]}
         />
       </div>

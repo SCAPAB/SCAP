@@ -162,6 +162,23 @@ const quarterEnds = (asOf: string) => {
   return out.filter((d) => d < asOf);
 };
 
+/** Kvartalsslut q med from < q ≤ to. */
+const quarterEndsBetween = (from: string, to: string) => {
+  const out: string[] = [];
+  for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) {
+    for (const q of ['03-31', '06-30', '09-30', '12-31']) {
+      const d = `${y}-${q}`;
+      if (d > from && d <= to) out.push(d);
+    }
+  }
+  return out;
+};
+
+/**
+ * Rapportbevakning per åtagande. Förväntade rapporter är kvartalssluten efter den senaste rapporten,
+ * eller från och med det första anropet om ingen rapport finns. En rapport saknas när kvartalsslut +
+ * rapporteringstid ≤ asOf. Förseningen räknas från förfallodagen för den äldsta saknade rapporten.
+ */
 portfolioRoutes.get('/portfolio/reporting', (req, res) => {
   const ents = parseEntities(req.query.entities);
   const asOf = parseDate(req.query.asOf, today());
@@ -177,9 +194,16 @@ portfolioRoutes.get('/portfolio/reporting', (req, res) => {
     const ins = get<Instrument>('SELECT * FROM instruments WHERE id=?', c.instrument_id)!;
     const last = get<{ date: string; document_id: number | null }>('SELECT date, document_id FROM pe_valuations WHERE entity_id=? AND instrument_id=? AND date<=? ORDER BY date DESC LIMIT 1', c.entity_id, c.instrument_id, asOf);
     const latest = last?.date ?? null;
-    const status = latest && latest >= latestQuarter ? 'received' : latest && latest >= due ? 'awaiting' : 'overdue';
-    const daysLate = status === 'overdue' ? Math.round((Date.parse(asOf) - Date.parse(addDays(due, lag))) / 864e5) : 0;
-    return { entityId: c.entity_id, entity: c.entity, instrumentId: ins.id, fund: ins.name, manager: ins.manager, assetClass: ins.asset_class, latest, documentId: last?.document_id ?? null, status, daysLate };
+    const firstCall = get<{ d: string | null }>("SELECT MIN(trade_date) d FROM transactions WHERE entity_id=? AND instrument_id=? AND type='CALL' AND trade_date<=?", c.entity_id, c.instrument_id, asOf)?.d ?? null;
+    const start = latest ?? (firstCall ? addDays(firstCall, -1) : null);
+    const missingQs = start ? quarterEndsBetween(start, asOf).filter((q) => addDays(q, lag) <= asOf) : [];
+    const oldestMissing = missingQs[0] ?? null;
+    const status = oldestMissing ? 'overdue' : latest && latest >= latestQuarter ? 'received' : 'awaiting';
+    const daysLate = oldestMissing ? Math.round((Date.parse(asOf) - Date.parse(addDays(oldestMissing, lag))) / 864e5) : 0;
+    return {
+      entityId: c.entity_id, entity: c.entity, instrumentId: ins.id, fund: ins.name, manager: ins.manager, assetClass: ins.asset_class, latest,
+      documentId: last?.document_id ?? null, status, daysLate, missing: missingQs.length, oldestMissing,
+    };
   }).sort((a, b) => ({ overdue: 0, awaiting: 1, received: 2 }[a.status]! - { overdue: 0, awaiting: 1, received: 2 }[b.status]!) || a.fund.localeCompare(b.fund));
   res.json({ asOf, latestQuarter, due, lag, rows });
 });
