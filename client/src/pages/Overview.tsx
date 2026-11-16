@@ -16,7 +16,7 @@ interface OverviewData {
   returns: PeriodReturn[];
   top: { id: number; name: string; type: InstrumentType; value: number; weight: number }[];
   allocations: Allocations;
-  staleData: { id: number; name: string; lastDate: string | null; kind: string }[];
+  staleData: { id: number | null; name: string; lastDate: string | null; kind: string }[];
 }
 
 export default function Overview() {
@@ -39,7 +39,7 @@ export default function Overview() {
         <div className="alert">
           <strong>Inaktuell värdering:</strong>{' '}
           {data.staleData.slice(0, 5).map((s, i) => (
-            <span key={s.id}>{i > 0 && ', '}<Link to={`/instrument/${s.id}`}>{s.name}</Link> ({s.kind} {s.lastDate ?? 'saknas'})</span>
+            <span key={`${s.kind}-${s.id ?? s.name}`}>{i > 0 && ', '}<Link to={s.id == null ? '/marknadsdata' : `/instrument/${s.id}`}>{s.name}</Link> ({s.kind} {s.lastDate ?? 'saknas'})</span>
           ))}
           {data.staleData.length > 5 && ` och ${data.staleData.length - 5} till`}
         </div>

@@ -356,16 +356,22 @@ api.get('/portfolio/overview', (req, res) => {
   res.json(result);
 });
 
-/** Varnar för instrument med inaktuella kurser/NAV – viktigt för värderingskvalitet. */
+/**
+ * Varnar för instrument med inaktuella kurser/NAV och för valutor i innehavet som saknar registrerad
+ * valutakurs på eller före dagen (värderingen bygger då på kursen från den senaste egna affären).
+ * Rader för valutor har id = null och länkas till Marknadsdata.
+ */
 function staleness(asOf: string) {
   const m = getMarket();
-  const out: { id: number; name: string; lastDate: string | null; kind: string }[] = [];
+  const out: { id: number | null; name: string; lastDate: string | null; kind: string }[] = [];
   const s = enrichedSnapshot(null, asOf);
   for (const h of s.listed) {
     const p = m.price(h.instrumentId, asOf);
     if (!p || p.date < addDays(asOf, -7)) out.push({ id: h.instrumentId, name: h.instrument.name, lastDate: p?.date ?? null, kind: 'Kurs' });
   }
   for (const h of s.pe) if (!h.navReportDate || h.navReportDate < addDays(asOf, -200)) out.push({ id: h.instrumentId, name: h.instrument.name, lastDate: h.navReportDate, kind: 'NAV' });
+  const currencies = new Set([...s.listed, ...s.pe].map((h) => h.instrument.currency.toUpperCase()).filter((c) => c !== 'SEK'));
+  for (const c of [...currencies].sort()) if (!m.fxAsOf(c, asOf)) out.push({ id: null, name: c, lastDate: null, kind: 'Valutakurs' });
   return out;
 }
 

@@ -5,12 +5,12 @@
   "steg": [
     { "anrop": "POST /api/fx", "data": { "currency": "EUR", "date": "2026-06-30", "rate": 11.5 } },
     { "anrop": "POST /api/instruments", "data": { "type": "FUND", "name": "Testfond Euro Valuta", "currency": "EUR", "fund_category": "Aktiefond", "region": "Europa" }, "spara": "fond" },
-    { "beskrivning": "Köp utan valutakurs före första kursen stoppas", "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{fond}}", "type": "BUY", "trade_date": "2026-01-15", "quantity": 1000, "price": 10, "amount": 10000, "fee": 0 }, "forvantadStatus": 400, "felInnehaller": "Valutakurs", "kantFel": "Placerare 2026-11-15 fel 6: köpet bokas med valutakursen från 2026-06-30" },
+    { "beskrivning": "Köp utan valutakurs före första kursen stoppas", "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{fond}}", "type": "BUY", "trade_date": "2026-01-15", "quantity": 1000, "price": 10, "amount": 10000, "fee": 0 }, "forvantadStatus": 400, "felInnehaller": "Valutakurs" },
     { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{fond}}", "type": "BUY", "trade_date": "2026-01-15", "quantity": 1000, "price": 10, "amount": 10000, "fee": 0, "fx_rate": 11.0 } },
     { "anrop": "POST /api/prices", "data": { "instrument_id": "{{fond}}", "date": "2026-03-31", "price": 10 } }
   ],
   "kontroller": [
-    { "namn": "Anskaffningsvärde 110 000 kr", "hamta": "GET /api/instruments/{{fond}}?asOf={{datum}}", "falt": "total.costBase", "forvantat": 110000, "kantFel": "Placerare 2026-11-15 fel 6: köpet utan valutakurs bokades med kursen från 2026-06-30" },
-    { "namn": "Saknad valutakurs per 2026-03-31 flaggas", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "staleData", "innehaller": "EUR", "kantFel": "Placerare 2026-11-15 fel 6: värderingen använder en senare valutakurs utan varning" }
+    { "namn": "Anskaffningsvärde 110 000 kr", "hamta": "GET /api/instruments/{{fond}}?asOf={{datum}}", "falt": "total.costBase", "forvantat": 110000 },
+    { "namn": "Saknad valutakurs per 2026-03-31 flaggas", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "staleData", "innehaller": "EUR" }
   ]
 }

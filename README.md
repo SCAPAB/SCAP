@@ -109,6 +109,7 @@ Kända fel som ännu inte är rättade ligger kvar som scenarier märkta `kantFe
 ## Beräkningsprinciper
 
 - **Rapportvaluta** är SEK. Valutakurs anges som SEK per enhet.
+- **Valutakurs** för en affär och för en värdering är den senast registrerade kursen på eller före dagen. En kurs från ett senare datum används aldrig. Saknas kurs vid registrering måste den anges på affären. Saknas kurs vid värdering används kursen från den senaste egna affären i instrumentet, och valutan flaggas under Inaktuell värdering på Översikten.
 - **Anskaffningsvärde** beräknas enligt genomsnittsmetoden, inklusive courtage. Anskaffningsvärdet i SEK räknas med valutakursen på affärsdagen.
 - **Valutaeffekt** är anskaffningsvärdet i lokal valuta × dagens valutakurs minus anskaffningsvärdet i SEK.
 - **PE-NAV:** senast rapporterade NAV plus kapitalanropens investeringsdel (avgifter ingår i inbetalt men inte i NAV) och minus utdelningar efter rapportdatum. Saknas rapport används inbetalt minus utdelat. Framräknade värden markeras med *.

@@ -400,8 +400,8 @@ function hypothetical(p: ProposalRow, f: Record<string, PField>, ins: Instrument
   const fee = num(f.fee) ?? 0;
   const amt = amount ?? (p.kind === 'BUY' || p.kind === 'SELL' ? qty * price : null);
   if (amt == null || !isFinite(amt)) return null;
-  let fx = num(f.fx_rate) ?? getMarket().fxRate(ins.currency, date);
-  if (!isFinite(fx)) fx = 1;
+  // Ingen påhittad reservkurs: saknas valutakurs blir den NaN och kontrollen 'fx' blockerar godkännandet.
+  const fx = num(f.fx_rate) ?? getMarket().fxRate(ins.currency, date);
   // Kapitalanrop: amount i transaktionen = investeringsdelen, fee = avgiftsdelen
   const isCall = p.kind === 'CALL';
   const outside = isCall ? num(f.outside_commitment) ?? 0 : 0;

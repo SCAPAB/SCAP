@@ -81,13 +81,19 @@ export class Market {
     return this.prices.get(instrumentId)?.asOf(date) ?? null;
   }
 
-  /** SEK per 1 enhet valuta per datum. Saknas kurs före datum används äldsta kända. */
+  /**
+   * SEK per 1 enhet valuta per datum: senast kända kurs på eller före datum. En kurs från ett senare
+   * datum används aldrig – finns ingen kurs på eller före datum blir resultatet NaN.
+   */
   fxRate(currency: string, date: string): number {
+    return this.fxAsOf(currency, date)?.value ?? NaN;
+  }
+
+  /** Senast kända valutakurs på eller före datum, med kursens datum. SEK ger alltid 1. */
+  fxAsOf(currency: string, date: string): { date: string; value: number } | null {
     const c = currency.toUpperCase();
-    if (c === 'SEK') return 1;
-    const s = this.fx.get(c);
-    if (!s || s.values.length === 0) return NaN;
-    return s.asOf(date)?.value ?? s.values[0];
+    if (c === 'SEK') return { date, value: 1 };
+    return this.fx.get(c)?.asOf(date) ?? null;
   }
 
   nav(entityId: number, instrumentId: number, date: string) {
@@ -107,9 +113,25 @@ export class Market {
 // Noterade innehav (aktier och fonder) – genomsnittsmetoden
 // ---------------------------------------------------------------------------
 
+/**
+ * Valutakurs för värdering per asOf. I första hand registrets senaste kurs på eller före asOf.
+ * Saknas en sådan används kursen från den senaste egna affären i instrumentet (≤ asOf), och
+ * fxSource = 'transaction' visar att värderingen bygger på en reservkurs (flaggas på Översikten).
+ */
+function valuationFx(market: Market, currency: string, sorted: Transaction[], asOf: string): { fx: number; fxDate: string | null; fxSource: 'register' | 'transaction' } {
+  if (currency.toUpperCase() === 'SEK') return { fx: 1, fxDate: null, fxSource: 'register' };
+  const reg = market.fxAsOf(currency, asOf);
+  if (reg) return { fx: reg.value, fxDate: reg.date, fxSource: 'register' };
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const t = sorted[i];
+    if (t.trade_date <= asOf && t.fx_rate > 0 && isFinite(t.fx_rate)) return { fx: t.fx_rate, fxDate: t.trade_date, fxSource: 'transaction' };
+  }
+  return { fx: NaN, fxDate: null, fxSource: 'transaction' };
+}
+
 function emptyListed(instrumentId: number, entityIds: number[]): ListedHolding {
   return {
-    instrumentId, entityIds, quantity: 0, avgCostLocal: 0, costLocal: 0, costBase: 0, price: 0, priceDate: null, fx: 1,
+    instrumentId, entityIds, quantity: 0, avgCostLocal: 0, costLocal: 0, costBase: 0, price: 0, priceDate: null, fx: 1, fxDate: null, fxSource: 'register',
     mvLocal: 0, mvBase: 0, unrealizedLocal: 0, unrealizedBase: 0, fxEffectBase: 0, realizedBase: 0,
     dividendsBase: 0, feesBase: 0, totalPnlBase: 0, unrealizedPct: null,
   };
@@ -161,7 +183,10 @@ export function listedHolding(
   const px = market.price(instrument.id, asOf) ?? (lastTradePrice ? { date: lastTradePrice.date, value: lastTradePrice.price } : null);
   h.price = px?.value ?? 0;
   h.priceDate = px?.date ?? null;
-  h.fx = market.fxRate(instrument.currency, asOf);
+  const fx = valuationFx(market, instrument.currency, sorted, asOf);
+  h.fx = fx.fx;
+  h.fxDate = fx.fxDate;
+  h.fxSource = fx.fxSource;
   h.avgCostLocal = h.quantity > EPS ? h.costLocal / h.quantity : 0;
   h.mvLocal = h.quantity * h.price;
   h.mvBase = h.mvLocal * h.fx;
@@ -181,6 +206,8 @@ export function sumListed(parts: ListedHolding[]): ListedHolding {
     h.price = p.price;
     h.priceDate = p.priceDate;
     h.fx = p.fx;
+    h.fxDate = p.fxDate;
+    h.fxSource = p.fxSource;
   }
   h.avgCostLocal = h.quantity > EPS ? h.costLocal / h.quantity : 0;
   h.unrealizedPct = h.costBase > EPS ? h.unrealizedBase / h.costBase : null;
@@ -199,7 +226,7 @@ interface PeWork extends PeHolding {
 export function peHolding(instrument: Instrument, entityId: number, txs: Transaction[], market: Market, asOf: string): PeWork {
   const h: PeWork = {
     instrumentId: instrument.id, entityIds: [entityId], commitment: 0, called: 0, uncalled: 0, distributed: 0, fees: 0, paidIn: 0,
-    nav: 0, navReportDate: null, navEstimated: false, fx: 1, commitmentBase: 0, paidInBase: 0, distributedBase: 0, navBase: 0,
+    nav: 0, navReportDate: null, navEstimated: false, fx: 1, fxDate: null, fxSource: 'register', commitmentBase: 0, paidInBase: 0, distributedBase: 0, navBase: 0,
     uncalledBase: 0, pnlBase: 0, dpi: null, rvpi: null, tvpi: null, irr: null, irrBase: null, calledPct: null,
     flowsLocal: [], flowsBase: [],
   };
@@ -241,7 +268,10 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
       }
     }
   }
-  h.fx = market.fxRate(instrument.currency, asOf);
+  const fx = valuationFx(market, instrument.currency, sorted, asOf);
+  h.fx = fx.fx;
+  h.fxDate = fx.fxDate;
+  h.fxSource = fx.fxSource;
   h.paidIn = h.called + h.fees;
   h.uncalled = Math.max(0, h.commitment - drawnOnCommitment + recallable);
   h.calledPct = h.commitment > EPS ? drawnOnCommitment / h.commitment : null;

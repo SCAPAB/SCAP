@@ -104,7 +104,7 @@ export default function ImportPage() {
             <li>Datum anges ÅÅÅÅ-MM-DD.</li>
             <li>Kolumnen enhet kan utelämnas. Instrument anges med ISIN, namn, ticker eller id.</li>
             {kind === 'transactions' && <li>Typ: Köp, Sälj, Utdelning, Avgift, Åtagande, Kapitalanrop, Återbetalning.</li>}
-            {kind === 'transactions' && <li>Lämnas valutakurs tom hämtas den från registrerade valutakurser.</li>}
+            {kind === 'transactions' && <li>Lämnas valutakurs tom hämtas den från registrerade valutakurser på eller före affärsdagen. En kurs från ett senare datum används aldrig: finns ingen sådan kurs stoppas raden, och då anges valutakursen i filen.</li>}
             <li>Befintliga kurser/NAV för samma datum skrivs över.</li>
           </ul>
         </div>

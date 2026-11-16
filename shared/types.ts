@@ -78,6 +78,10 @@ export interface ListedHolding {
   price: number;
   priceDate: string | null;
   fx: number;
+  /** Datum för valutakursen som används vid värderingen (null för SEK) */
+  fxDate: string | null;
+  /** 'register' = registrerad valutakurs på eller före dagen, 'transaction' = reserv: kursen från senaste egna affären */
+  fxSource: 'register' | 'transaction';
   mvLocal: number;
   mvBase: number;
   unrealizedLocal: number;
@@ -103,6 +107,10 @@ export interface PeHolding {
   navReportDate: string | null;
   navEstimated: boolean;
   fx: number;
+  /** Datum för valutakursen som används vid värderingen (null för SEK) */
+  fxDate: string | null;
+  /** 'register' = registrerad valutakurs på eller före dagen, 'transaction' = reserv: kursen från senaste egna affären */
+  fxSource: 'register' | 'transaction';
   commitmentBase: number;
   paidInBase: number;
   distributedBase: number;

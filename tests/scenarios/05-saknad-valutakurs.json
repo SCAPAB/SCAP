@@ -11,7 +11,7 @@
   ],
   "kontroller": [
     { "namn": "SEK-innehavet värderas korrekt", "hamta": "GET /api/instruments/{{sek}}?asOf={{datum}}", "falt": "total.mvBase", "forvantat": 5000 },
-    { "namn": "Portföljens marknadsvärde är ett giltigt tal", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.marketValue", "arTal": true, "kantFel": "Granskning fynd 1: saknad valutakurs ger ogiltigt portföljvärde" },
-    { "namn": "Saknad valutakurs flaggas", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "staleData", "innehaller": "USD", "kantFel": "Granskning fynd 1: varningen nämner inte saknad valutakurs" }
+    { "namn": "Portföljens marknadsvärde är ett giltigt tal", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.marketValue", "arTal": true },
+    { "namn": "Saknad valutakurs flaggas", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "staleData", "innehaller": "USD" }
   ]
 }

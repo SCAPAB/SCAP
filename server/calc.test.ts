@@ -206,3 +206,30 @@ test('F2: tom portfölj ger ingen avkastning (null i stället för 0 %)', () => 
   const s = valueSeries({ instruments: [], transactions: [], market: m }, '2026-06-30', '2026-06-30', 7);
   for (const p of periodReturns(s, '2026-06-30')) assert.equal(p.value, null, p.key);
 });
+
+// ---------------------------------------------------------------------------
+// F3 (förbättring 2026-11-15): valutakurs från ett senare datum används aldrig
+// ---------------------------------------------------------------------------
+
+test('F3: fxRate före första registrerade kurs är NaN (ingen framtida kurs)', () => {
+  const m = new Market({ prices: [], fx: [{ currency: 'USD', date: '2025-10-01', rate: 10.5 }], valuations: [] });
+  assert.ok(Number.isNaN(m.fxRate('USD', '2025-01-15')));
+  assert.equal(m.fxAsOf('USD', '2025-01-15'), null);
+  assert.deepEqual(m.fxAsOf('USD', '2025-11-01'), { date: '2025-10-01', value: 10.5 });
+  assert.equal(m.fxRate('SEK', '2025-01-15'), 1);
+});
+
+test('F3: utan registrerad kurs värderas innehavet med kursen från den senaste egna affären', () => {
+  const usd = ins({ id: 7, currency: 'USD' });
+  const m = new Market({ prices: [{ instrument_id: 7, date: '2026-06-30', price: 110 }], fx: [], valuations: [] });
+  const h = listedHolding(usd, 1, [tx({ instrument_id: 7, type: 'BUY', quantity: 10, price: 100, amount: 1_000, fx_rate: 10, trade_date: '2026-01-10' })], m, '2026-06-30');
+  close(h.fx, 10);
+  close(h.mvBase, 11_000);
+  assert.equal(h.fxSource, 'transaction');
+  assert.equal(h.fxDate, '2026-01-10');
+  const m2 = new Market({ prices: [{ instrument_id: 7, date: '2026-06-30', price: 110 }], fx: [{ currency: 'USD', date: '2026-06-29', rate: 10.2 }], valuations: [] });
+  const h2 = listedHolding(usd, 1, [tx({ instrument_id: 7, type: 'BUY', quantity: 10, price: 100, amount: 1_000, fx_rate: 10, trade_date: '2026-01-10' })], m2, '2026-06-30');
+  close(h2.fx, 10.2);
+  assert.equal(h2.fxSource, 'register');
+  assert.equal(h2.fxDate, '2026-06-29');
+});
