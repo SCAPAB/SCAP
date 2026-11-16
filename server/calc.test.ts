@@ -169,6 +169,28 @@ test('F1: omplacering samma dag (sälj A, köp B) nettas och blåser inte upp n�
   close(s[s.length - 1].index, 105, 1e-9);
 });
 
+test('F1 (granskning): ett inflöde efter flera dagars kursrörelse späds inte ut', () => {
+  // Granskningens fall: A köps 1 000 st à 100 den 2026-01-05 och stiger till 110 fram till 2026-01-09.
+  // Den 2026-01-09 köps B för 1 000 000 med oförändrad kurs. Rätt TWR sedan start = 110 000 / 100 000 − 1 = 10 %.
+  // Mäts kursrörelsen 2026-01-05 → 2026-01-08 mot V0 + F blir det 10 000 / 1 100 000 = 0,91 %.
+  const a = ins({ id: 1, name: 'A' });
+  const b = ins({ id: 2, name: 'B' });
+  const m = new Market({
+    prices: [
+      { instrument_id: 1, date: '2026-01-05', price: 100 }, { instrument_id: 1, date: '2026-01-06', price: 103 },
+      { instrument_id: 1, date: '2026-01-07', price: 106 }, { instrument_id: 1, date: '2026-01-08', price: 110 },
+      { instrument_id: 1, date: '2026-01-09', price: 110 }, { instrument_id: 1, date: '2026-01-31', price: 110 },
+      { instrument_id: 2, date: '2026-01-09', price: 100 }, { instrument_id: 2, date: '2026-01-31', price: 100 },
+    ], fx: [], valuations: [],
+  });
+  const txs = [
+    tx({ instrument_id: 1, type: 'BUY', quantity: 1_000, price: 100, amount: 100_000, trade_date: '2026-01-05' }),
+    tx({ instrument_id: 2, type: 'BUY', quantity: 10_000, price: 100, amount: 1_000_000, trade_date: '2026-01-09' }),
+  ];
+  const s = valueSeries({ instruments: [a, b], transactions: txs, market: m }, '2026-01-05', '2026-01-31', 7);
+  close(periodReturns(s, '2026-01-31').find((p) => p.key === 'ALL')!.value, 0.1, 1e-9);
+});
+
 // ---------------------------------------------------------------------------
 // F2 (förbättring 2026-11-15): periodavkastning från exakt periodstart
 // ---------------------------------------------------------------------------

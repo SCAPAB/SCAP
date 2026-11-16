@@ -455,6 +455,7 @@ export function seriesDates(from: string, to: string, stepDays: number): string[
  *    En avgift i ett stort kapitalanrop mäts då mot det nya kapitalet och inte mot portföljen före anropet.
  *  - Nettoutflöde (F ≤ 0) räknas som uttaget vid dagens slut: r = (V1 − V0 − F) / V0.
  *    En försäljning av hela innehavet med vinst ger då vinsten, inte −100 %.
+ * Dagen före varje dag med nettoinflöde är alltid en brytpunkt, så att inflödet bara bär sin egen dag.
  * Är nämnaren ≤ 0 blir r = 0. Endast rutnätsdatum returneras.
  */
 export function valueSeries(data: PortfolioData, from: string, to: string, stepDays = 7): SeriesPoint[] {
@@ -464,7 +465,18 @@ export function valueSeries(data: PortfolioData, from: string, to: string, stepD
   const gridSet = new Set(grid);
   const txs = [...data.transactions].sort((a, b) => a.trade_date.localeCompare(b.trade_date));
   const breaks = new Set(grid);
-  for (const t of txs) if (t.trade_date > from && t.trade_date <= to) breaks.add(t.trade_date);
+  const dayFlow = new Map<string, number>();
+  for (const t of txs) {
+    if (t.trade_date <= from || t.trade_date > to) continue;
+    breaks.add(t.trade_date);
+    dayFlow.set(t.trade_date, (dayFlow.get(t.trade_date) ?? 0) + externalFlow(t));
+  }
+  // Brytpunkt dagen före varje dag med nettoinflöde, så att delperioden med inflödet är exakt en dag.
+  // Annars mäts kursrörelser under dagarna före inflödet mot V0 + F och späds ut.
+  for (const [d, f] of dayFlow) {
+    const prev = addDays(d, -1);
+    if (f > 0 && prev > from) breaks.add(prev);
+  }
   const dates = [...breaks].sort();
   const points: SeriesPoint[] = [];
   let ti = 0;
