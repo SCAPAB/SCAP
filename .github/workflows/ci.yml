@@ -1,4 +1,4 @@
-name: Tester
+name: CI
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
       - name: Bygg gränssnittet
         run: npx vite build
 
-  beslut:
+  approval-check:
     # Pull requests från agentflöden (grenar som <workflow>/<datum>) måste ha ett mänskligt
     # beslut på main och får bara innehålla godkända förslag.
     if: github.event_name == 'pull_request'
