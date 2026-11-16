@@ -355,7 +355,14 @@ function ProposalEditor({ p, issuer, instruments, entities, onChange, onHighligh
 
       <div className="form-grid">
         <label className="field">Investerare
-          <span className={'investor-box' + (p.match?.entity && !p.match.entity.confirmed ? ' unsure' : '')}>{entities.find((e) => e.id === p.entity_id)?.name ?? entities[0]?.name}</span>
+          {p.origin === 'manual' && (!p.entity_id || entities.length > 1) ? (
+            <select value={p.entity_id ?? ''} onChange={(e) => save({ entity_id: e.target.value || null })} className={!p.entity_id ? 'invalid' : ''}>
+              <option value="">Välj …</option>
+              {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          ) : (
+            <span className={'investor-box' + (p.match?.entity && !p.match.entity.confirmed ? ' unsure' : '')}>{entities.find((e) => e.id === p.entity_id)?.name ?? <span className="muted">Ingen enhet vald</span>}</span>
+          )}
           <MatchHint m={p.origin === 'ai' || p.match?.entity?.method === 'manual' ? p.match?.entity : undefined} docText={docInvestor ? String(docInvestor) : null} onShow={() => highlight('investor_label')}
             onConfirm={() => save({ confirm_match: ['entity'], ...(p.entity_id ? {} : { entity_id: entities[0]?.id }) })} onPick={(id) => save({ entity_id: id })} />
         </label>

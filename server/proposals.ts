@@ -175,7 +175,11 @@ export function createManualProposal(documentId: number, kind: Kind) {
   fields.isin = emptyField();
   fields.investor_label = emptyField();
   const seq = (get<{ n: number }>('SELECT COALESCE(MAX(seq),0) n FROM proposals WHERE document_id=?', documentId)?.n ?? 0) + 1;
-  const r = run('INSERT INTO proposals (document_id, seq, kind, origin, fields) VALUES (?,?,?,?,?)', documentId, seq, kind, 'manual', JSON.stringify(fields));
+  // Programmet förvaltar en juridisk enhet: en manuell post får den direkt. Finns flera väljer granskaren.
+  const ents = all<{ id: number }>('SELECT id FROM entities');
+  const only = ents.length === 1 ? ents[0].id : null;
+  const match = only ? JSON.stringify({ entity: { id: only, method: 'only_entity', score: 1, confirmed: true, label: null, candidates: [] } }) : null;
+  const r = run('INSERT INTO proposals (document_id, seq, kind, origin, fields, entity_id, match) VALUES (?,?,?,?,?,?,?)', documentId, seq, kind, 'manual', JSON.stringify(fields), only, match);
   return Number(r.lastInsertRowid);
 }
 

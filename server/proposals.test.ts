@@ -168,6 +168,15 @@ test('F10: avgift större än det totala anropet stoppas', () => {
   assert.ok(ev.blocking.some((b) => /investeringsdelen får inte bli negativ/.test(b)), JSON.stringify(ev.blocking));
 });
 
+test('F11: en manuell post får enheten automatiskt bara när programmet har exakt en enhet', () => {
+  const r = db.run("INSERT INTO documents (filename, mime, sha256, size, status) VALUES ('m.pdf', 'application/pdf', 'manual-f11', 1, 'manual')");
+  const docId = Number(r.lastInsertRowid);
+  // Testdatabasen har två enheter: enheten ska väljas av granskaren
+  const two = db.get<import('./proposals.ts').ProposalRow>('SELECT * FROM proposals WHERE id=?', P.createManualProposal(docId, 'CALL'))!;
+  assert.equal(two.entity_id, null);
+  assert.ok(P.evaluate(two, docId).blocking.includes('Välj juridisk enhet'));
+});
+
 test('namnmatchning skiljer på fondnummer', () => {
   assert.equal(P.nameScore('Nordic Buyout Partners V', 'Nordic Buyout Partners IV'), 0);
   assert.ok(P.nameScore('Nordic Buyout Partners IV SCSp', 'Nordic Buyout Partners IV') > 0.9);

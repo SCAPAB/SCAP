@@ -10,7 +10,7 @@
     { "anrop": "PUT /api/proposals/{{post}}", "data": { "instrument_id": "{{pe}}", "fields": { "date": "2026-03-01", "amount": 105000, "fee": 5000, "currency": "SEK" } } }
   ],
   "kontroller": [
-    { "namn": "Posten har programmets enda juridiska enhet", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].entity_id", "forvantat": 1, "kantFel": "Placerare 2026-11-15 fel 5: manuell post saknar enhet och enheten går inte att välja i gränssnittet" },
-    { "namn": "Posten kan godkännas", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].canApprove", "forvantat": true, "kantFel": "Placerare 2026-11-15 fel 5: 'Välj juridisk enhet' blockerar manuell post" }
+    { "namn": "Posten har programmets enda juridiska enhet", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].entity_id", "forvantat": 1 },
+    { "namn": "Posten kan godkännas", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].canApprove", "forvantat": true }
   ]
 }
