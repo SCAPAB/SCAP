@@ -112,7 +112,7 @@ Kända fel som ännu inte är rättade ligger kvar som scenarier märkta `kantFe
 - **Anskaffningsvärde** beräknas enligt genomsnittsmetoden, inklusive courtage. Anskaffningsvärdet i SEK räknas med valutakursen på affärsdagen.
 - **Valutaeffekt** är anskaffningsvärdet i lokal valuta × dagens valutakurs minus anskaffningsvärdet i SEK.
 - **PE-NAV:** senast rapporterade NAV plus kapitalanropens investeringsdel (avgifter ingår i inbetalt men inte i NAV) och minus utdelningar efter rapportdatum. Saknas rapport används inbetalt minus utdelat. Framräknade värden markeras med *.
-- **Avkastning** är tidsviktad (TWR) och bryts vid varje transaktionsdag (flöden i slutet av dagen). Köp, försäljningar, anrop och utdelningar räknas som externa flöden.
+- **Avkastning** är tidsviktad (TWR) och bryts vid varje transaktionsdag. Köp, försäljningar, anrop och utdelningar räknas som externa flöden, och flödena nettas per dag. Ett nettoinflöde räknas som investerat från dagens början, r = (V1 − V0 − F) / (V0 + F), så att till exempel avgiften i ett kapitalanrop mäts mot det nya kapitalet. Ett nettoutflöde räknas som uttaget vid dagens slut, r = (V1 − V0 − F) / V0.
 - **Outnyttjat åtagande** = åtagande − anropat (exklusive utjämningsränta utanför åtagandet) + återinkallningsbara utdelningar.
 - **Kassaflödesprognos** enligt Takahashi & Alexander (2002) med schablonparametrar per strategi (tillväxt, löptid, bow, anropstakt).
 - **IRR** är XIRR på faktiska kassaflöden plus NAV som slutvärde.

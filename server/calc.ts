@@ -7,7 +7,8 @@
  *    Anskaffningsvärdet i SEK räknas med valutakursen på respektive affärsdag.
  *  - PE-fonder: senast rapporterade NAV rullas fram med kapitalanrop och utdelningar
  *    efter rapportdatum. Saknas NAV används inbetalt minus utdelat (värdering till kostnad).
- *  - Avkastning för portföljen: tidsviktad (TWR), länkad Modified Dietz per delperiod.
+ *  - Avkastning för portföljen: tidsviktad (TWR), bruten vid varje transaktionsdag. Nettoinflöden räknas
+ *    från dagens början och nettoutflöden vid dagens slut (se valueSeries).
  */
 import type {
   AllocationRow, Cashflow, Instrument, ListedHolding, PeHolding, PeriodReturn, SeriesPoint, Transaction,
@@ -385,9 +386,13 @@ export function seriesDates(from: string, to: string, stepDays: number): string[
 }
 
 /**
- * Värdeserie med exakt tidsviktad avkastning: perioden bryts vid varje transaktionsdag så att
- * kassaflöden alltid ligger i periodens slut (r = (V1 − F − V0) / V0). Det undviker Modified Dietz
- * felkällor när ett innehav startar mitt i en period. Endast rutnätsdatum returneras.
+ * Värdeserie med tidsviktad avkastning: perioden bryts vid varje transaktionsdag, och dagens flöden
+ * nettas (F = summan av externa flöden samma dag, så att en omplacering inte blåser upp nämnaren).
+ *  - Nettoinflöde (F > 0) räknas som investerat från dagens början: r = (V1 − V0 − F) / (V0 + F).
+ *    En avgift i ett stort kapitalanrop mäts då mot det nya kapitalet och inte mot portföljen före anropet.
+ *  - Nettoutflöde (F ≤ 0) räknas som uttaget vid dagens slut: r = (V1 − V0 − F) / V0.
+ *    En försäljning av hela innehavet med vinst ger då vinsten, inte −100 %.
+ * Är nämnaren ≤ 0 blir r = 0. Endast rutnätsdatum returneras.
  */
 export function valueSeries(data: PortfolioData, from: string, to: string, stepDays = 7): SeriesPoint[] {
   const grid = seriesDates(from, to, stepDays);
@@ -409,7 +414,8 @@ export function valueSeries(data: PortfolioData, from: string, to: string, stepD
     while (ti < txs.length && txs[ti].trade_date <= d1) flow += externalFlow(txs[ti++]);
     netInvested += flow;
     const value = totalValue(snapshot(data, d1));
-    const r = prevValue > EPS ? (value - flow - prevValue) / prevValue : 0;
+    const denom = flow > 0 ? prevValue + flow : prevValue;
+    const r = denom > EPS ? (value - prevValue - flow) / denom : 0;
     index *= 1 + (isFinite(r) ? r : 0);
     if (gridSet.has(d1)) points.push({ date: d1, value, netInvested, index });
     prevValue = value;

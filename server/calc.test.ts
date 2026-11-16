@@ -115,3 +115,56 @@ test('PE: utjämningsränta utanför åtagandet och återinkallningsbar utdelnin
   close(h.uncalled, 1_000 - 315 + 40);
   close(h.nav, 300 - 100);
 });
+
+// ---------------------------------------------------------------------------
+// F1 (förbättring 2026-11-15): inflöden räknas från dagens början, utflöden vid dagens slut
+// ---------------------------------------------------------------------------
+
+test('F1: avgiften i ett stort kapitalanrop mäts mot det nya kapitalet (scenario 09)', () => {
+  const fond = ins({ id: 1, type: 'FUND', asset_class: 'FIXED_INCOME' });
+  const pe = ins({ id: 2, type: 'PE_FUND', asset_class: 'PRIVATE_EQUITY' });
+  const m = new Market({
+    prices: [{ instrument_id: 1, date: '2026-01-02', price: 100 }, { instrument_id: 1, date: '2026-06-30', price: 100 }],
+    fx: [], valuations: [],
+  });
+  const txs = [
+    tx({ instrument_id: 1, type: 'BUY', quantity: 1_000, price: 100, amount: 100_000, trade_date: '2026-01-02' }),
+    tx({ instrument_id: 2, type: 'COMMITMENT', amount: 2_000_000, trade_date: '2026-01-02' }),
+    tx({ instrument_id: 2, type: 'CALL', amount: 980_000, fee: 20_000, trade_date: '2026-03-02' }),
+  ];
+  const all = valueSeries({ instruments: [fond, pe], transactions: txs, market: m }, '2026-01-02', '2026-06-30', 7);
+  // 1 080 000 / 1 100 000 − 1
+  close(periodReturns(all, '2026-06-30').find((p) => p.key === 'ALL')!.value, 1_080_000 / 1_100_000 - 1, 1e-9);
+  const peOnly = valueSeries({ instruments: [pe], transactions: txs.filter((t) => t.instrument_id === 2), market: m }, '2026-01-02', '2026-06-30', 7);
+  close(periodReturns(peOnly, '2026-06-30').find((p) => p.key === 'ALL')!.value, -0.02, 1e-9);
+});
+
+test('F1: försäljning av hela innehavet med vinst ger +20 % (uttag räknas vid dagens slut)', () => {
+  const m = new Market({ prices: [{ instrument_id: 1, date: '2024-01-01', price: 100 }, { instrument_id: 1, date: '2024-01-02', price: 100 }], fx: [], valuations: [] });
+  const txs = [
+    tx({ type: 'BUY', quantity: 1_000, price: 100, amount: 100_000, trade_date: '2024-01-01' }),
+    tx({ type: 'SELL', quantity: 1_000, price: 120, amount: 120_000, trade_date: '2024-01-03' }),
+  ];
+  const s = valueSeries({ instruments: [ins({})], transactions: txs, market: m }, '2024-01-01', '2024-01-03', 1);
+  close(s[s.length - 1].index, 120, 1e-9);
+});
+
+test('F1: omplacering samma dag (sälj A, köp B) nettas och blåser inte upp nämnaren', () => {
+  const a = ins({ id: 1, name: 'A' });
+  const b = ins({ id: 2, name: 'B' });
+  const txs = [
+    tx({ instrument_id: 1, type: 'BUY', quantity: 1_000, price: 100, amount: 100_000, trade_date: '2024-01-01' }),
+    tx({ instrument_id: 1, type: 'SELL', quantity: 1_000, price: 100, amount: 100_000, trade_date: '2024-01-02' }),
+    // Köpet registreras till kurs 100 men B stänger på 105 samma dag → V1 = 105 000 mot V0 = 100 000
+    tx({ instrument_id: 2, type: 'BUY', quantity: 1_000, price: 100, amount: 100_000, trade_date: '2024-01-02' }),
+  ];
+  const m = new Market({
+    prices: [
+      { instrument_id: 1, date: '2024-01-01', price: 100 }, { instrument_id: 1, date: '2024-01-02', price: 100 },
+      { instrument_id: 2, date: '2024-01-02', price: 105 },
+    ], fx: [], valuations: [],
+  });
+  const s = valueSeries({ instruments: [a, b], transactions: txs, market: m }, '2024-01-01', '2024-01-02', 1);
+  // Nettoflöde 0 → r = (V1 − V0) / V0 = (105 000 − 100 000) / 100 000 = 5 %. Med bara inflödet i nämnaren hade det blivit 5 000 / 200 000 = 2,5 %.
+  close(s[s.length - 1].index, 105, 1e-9);
+});

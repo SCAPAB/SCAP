@@ -14,7 +14,7 @@
   "kontroller": [
     { "namn": "Portföljvärde 1 080 000", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.marketValue", "forvantat": 1080000 },
     { "namn": "Räntefondens avkastning 0 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "rows[key=FIXED_INCOME].returns[key=ALL].value", "forvantat": 0, "tolerans": 0.0001 },
-    { "namn": "Portföljens avkastning sedan start −1,82 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.returns[key=ALL].value", "forvantat": -0.018182, "tolerans": 0.0005, "kantFel": "Placerare 2026-11-15 fel 3: avgiften i anropet mäts mot portföljen före anropet (−20 %)" },
-    { "namn": "Private equity sedan start −2,00 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "rows[key=PRIVATE_EQUITY].returns[key=ALL].value", "forvantat": -0.02, "tolerans": 0.0005, "kantFel": "Placerare 2026-11-15 fel 3: avgiften i första anropet syns inte i avkastningen" }
+    { "namn": "Portföljens avkastning sedan start −1,82 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.returns[key=ALL].value", "forvantat": -0.018182, "tolerans": 0.0005 },
+    { "namn": "Private equity sedan start −2,00 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "rows[key=PRIVATE_EQUITY].returns[key=ALL].value", "forvantat": -0.02, "tolerans": 0.0005 }
   ]
 }
