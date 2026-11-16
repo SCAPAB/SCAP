@@ -114,55 +114,117 @@ export function integrityIssues(): IntegrityIssue[] {
   return out;
 }
 
+/** En validerad och normaliserad transaktion, redo att sparas. */
+export interface ValidTx {
+  entity_id: number; instrument_id: number; type: TxType; trade_date: string; settle_date: string | null;
+  quantity: number; price: number; amount: number; fee: number; fx_rate: number; note: string | null;
+  outside_commitment: number; recallable: number;
+}
+export interface TxCheck { value: ValidTx | null; errors: string[]; codes: string[] }
+
+/** Tolkar ett tal utan att kasta: null om det saknas, NaN om det är ogiltigt. Decimalkomma och mellanslag går bra. */
+const parseNum = (v: unknown): number | null => {
+  if (v === undefined || v === null || v === '') return null;
+  return typeof v === 'string' ? Number(v.replace(/\s/g, '').replace(',', '.')) : Number(v);
+};
+
 /**
- * Validerar och normaliserar en transaktion. Kastar 400 vid fel.
- * `b.id` anger en befintlig transaktion som ersätts (ändring), så att innehavet prövas med den nya versionen.
+ * Samma kontroller för alla vägar in: Ny transaktion, Transaktioner (ändring), Import, Inkorgen och
+ * ändringsbegäran. Kastar inte, utan samlar alla fel (F10):
+ *  - grunddata: instrument, enhet, typ och affärsdag
+ *  - tecken: belopp, avgift, antal, kurs, valutakurs, utanför åtagandet och återinkallningsbart ≥ 0
+ *  - kapitalanrop: utanför åtagandet ≤ avgiften (amount är investeringsdelen och får inte vara negativ)
+ *  - valutakurs på eller före affärsdagen (F3)
+ *  - innehavet över hela tidslinjen (F4) och åtagandet över hela tidslinjen (F5)
+ * `b.id` anger en befintlig transaktion som ersätts (ändring), så att tidslinjen prövas med den nya versionen.
  */
-export function validateTransaction(b: Record<string, unknown>) {
+export function checkTransaction(b: Record<string, unknown>): TxCheck {
+  const errors: string[] = [];
+  const codes: string[] = [];
+  const fail = (code: string, msg: string) => { errors.push(msg); codes.push(code); };
   const instrument = get<Instrument>('SELECT * FROM instruments WHERE id = ?', Number(b.instrument_id));
-  if (!instrument) throw new HttpError(400, 'Okänt instrument');
-  if (!get('SELECT 1 FROM entities WHERE id = ?', Number(b.entity_id))) throw new HttpError(400, 'Okänd juridisk enhet');
+  if (!instrument) fail('instrument', 'Okänt instrument');
+  if (!get('SELECT 1 FROM entities WHERE id = ?', Number(b.entity_id))) fail('entity', 'Okänd juridisk enhet');
   const type = String(b.type) as TxType;
-  const allowed = instrument.type === 'PE_FUND' ? PE_TX_TYPES : LISTED_TX_TYPES;
-  if (!allowed.includes(type)) throw new HttpError(400, `Transaktionstypen ${type} är inte tillåten för ${instrument.name}`);
-  if (!isDate(b.trade_date)) throw new HttpError(400, 'Affärsdag saknas eller är ogiltig (ÅÅÅÅ-MM-DD)');
+  if (instrument && !(instrument.type === 'PE_FUND' ? PE_TX_TYPES : LISTED_TX_TYPES).includes(type)) {
+    fail('type', `Transaktionstypen ${type} är inte tillåten för ${instrument.name}`);
+  }
+  const dateOk = isDate(b.trade_date);
+  if (!dateOk) fail('date', 'Affärsdag saknas eller är ogiltig (ÅÅÅÅ-MM-DD)');
   const settle = b.settle_date ? (isDate(b.settle_date) ? (b.settle_date as string) : null) : null;
+
+  // Tal: ogiltiga tal och negativa värden
+  const field = (v: unknown, label: string, code: string) => {
+    const n = parseNum(v);
+    if (n === null) return null;
+    if (!isFinite(n)) fail(code, `${label}: ogiltigt tal`);
+    else if (n < 0) fail('sign', `${label} får inte vara negativt`);
+    return n;
+  };
+  const qIn = field(b.quantity, 'Antal', 'quantity');
+  const pIn = field(b.price, 'Kurs', 'price');
+  const aIn = field(b.amount, 'Belopp', 'amount');
+  const fIn = field(b.fee, 'Avgift', 'fee');
+  const fxIn = field(b.fx_rate, 'Valutakurs', 'fx');
+  const oIn = field(b.outside_commitment, 'Varav utanför åtagandet', 'outside');
+  const rIn = field(b.recallable, 'Varav återinkallningsbart', 'recallable');
+
   let quantity = 0;
   let price = 0;
   let amount: number;
   if (type === 'BUY' || type === 'SELL') {
-    quantity = num(b.quantity, 'Antal', { min: 0 })!;
-    if (quantity <= 0) throw new HttpError(400, 'Antal måste vara större än 0');
-    price = num(b.price, 'Kurs', { min: 0 })!;
-    amount = num(b.amount, 'Belopp', { min: 0, optional: true }) ?? quantity * price;
+    quantity = qIn ?? NaN;
+    price = pIn ?? NaN;
+    if (qIn === null) fail('quantity', 'Antal saknas');
+    else if (qIn === 0) fail('quantity', 'Antal måste vara större än 0');
+    if (pIn === null) fail('price', 'Kurs saknas');
+    amount = aIn ?? quantity * price;
   } else {
-    amount = num(b.amount, 'Belopp', { min: 0 })!;
-    price = num(b.price, 'Kurs', { min: 0, def: 0 })!;
+    amount = aIn ?? NaN;
+    price = pIn ?? 0;
+    if (aIn === null) fail('amount', 'Belopp saknas');
   }
-  if (amount <= 0) throw new HttpError(400, 'Belopp måste vara större än 0');
-  const fee = num(b.fee, 'Avgift', { min: 0, def: 0 })!;
-  let fx = num(b.fx_rate, 'Valutakurs', { min: 0, optional: true });
-  if (!fx) {
+  const fee = fIn ?? 0;
+  if (isFinite(amount) && amount >= 0 && fee >= 0) {
+    // Ett kapitalanrop kan bestå av enbart avgifter (investeringsdelen 0)
+    if (type === 'CALL' ? amount + fee <= 0 : amount <= 0) fail('amount', 'Belopp måste vara större än 0');
+  }
+  const outside = type === 'CALL' ? oIn ?? 0 : 0;
+  const recallable = type === 'DISTRIBUTION' ? rIn ?? 0 : 0;
+  if (type === 'CALL' && outside > fee + 1e-9 && fee >= 0) {
+    fail('outside', `Varav utanför åtagandet (${fmtQ(outside, 2)}) kan inte vara större än avgiften (${fmtQ(fee, 2)})`);
+  }
+  let fx = fxIn != null && fxIn > 0 ? fxIn : NaN;
+  if (!(fxIn != null && fxIn < 0) && !isFinite(fx) && instrument && dateOk) {
     fx = getMarket().fxRate(instrument.currency, b.trade_date as string);
-    if (!isFinite(fx)) throw new HttpError(400, `Valutakurs för ${instrument.currency} saknas – ange den manuellt`);
+    if (!isFinite(fx)) fail('fx', `Valutakurs för ${instrument.currency} saknas – ange den manuellt`);
   }
-  // PE: utanför åtagandet (t.ex. utjämningsränta) för anrop och återinkallningsbart för utdelningar
-  const outside = type === 'CALL' ? num(b.outside_commitment, 'Varav utanför åtagandet', { min: 0, def: 0 })! : 0;
-  const recallable = type === 'DISTRIBUTION' ? num(b.recallable, 'Varav återinkallningsbart', { min: 0, def: 0 })! : 0;
-  const me = { type, trade_date: b.trade_date as string, quantity, amount, fee, outside_commitment: outside, recallable };
-  const change: TimelineChange = b.id ? { replace: Number(b.id), with: me } : { add: me };
-  if (instrument.type !== 'PE_FUND' && (type === 'BUY' || type === 'SELL' || b.id)) {
-    const msg = checkHoldingTimeline(Number(b.entity_id), instrument.id, change);
-    if (msg) throw new HttpError(400, msg);
+
+  // Tidslinjen prövas bara när uppgifterna i sig är giltiga
+  if (!errors.length && instrument) {
+    const me = { type, trade_date: b.trade_date as string, quantity, amount, fee, outside_commitment: outside, recallable };
+    const change: TimelineChange = b.id ? { replace: Number(b.id), with: me } : { add: me };
+    if (instrument.type !== 'PE_FUND' && (type === 'BUY' || type === 'SELL' || b.id)) {
+      const msg = checkHoldingTimeline(Number(b.entity_id), instrument.id, change);
+      if (msg) fail('holding', msg);
+    }
+    if (instrument.type === 'PE_FUND' && (type === 'CALL' || type === 'COMMITMENT' || type === 'DISTRIBUTION' || b.id)) {
+      const msg = checkCommitmentTimeline(Number(b.entity_id), instrument.id, change);
+      if (msg) fail('commitment', msg);
+    }
   }
-  if (instrument.type === 'PE_FUND' && (type === 'CALL' || type === 'COMMITMENT' || type === 'DISTRIBUTION' || b.id)) {
-    const msg = checkCommitmentTimeline(Number(b.entity_id), instrument.id, change);
-    if (msg) throw new HttpError(400, msg);
-  }
-  return {
+  const value: ValidTx | null = errors.length || !instrument ? null : {
     entity_id: Number(b.entity_id), instrument_id: instrument.id, type, trade_date: b.trade_date as string, settle_date: settle,
     quantity, price, amount, fee, fx_rate: fx, note: str(b.note, 500), outside_commitment: outside, recallable,
   };
+  return { value, errors, codes };
+}
+
+/** Validerar och normaliserar en transaktion. Kastar 400 med det första felet (se checkTransaction). */
+export function validateTransaction(b: Record<string, unknown>): ValidTx {
+  const r = checkTransaction(b);
+  if (r.errors.length || !r.value) throw new HttpError(400, r.errors[0] ?? 'Ogiltig transaktion');
+  return r.value;
 }
 
 const TYPES: InstrumentType[] = ['EQUITY', 'FUND', 'PE_FUND'];

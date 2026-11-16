@@ -11,6 +11,7 @@ export { nameScore } from './matching.ts';
 import { HttpError } from './auth.ts';
 import { getMarket, bumpVersion } from './data.ts';
 import { listedHolding, peHolding, addDays } from './calc.ts';
+import { checkTransaction } from './validate.ts';
 import type { ExtractionT } from './ai.ts';
 import type { Entity, Instrument, InstrumentType, Transaction } from '../shared/types.ts';
 
@@ -263,9 +264,9 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
 
   // Valutakurs
   if (ins && ins.currency !== 'SEK' && date && isDate(date) && ['CALL', 'DISTRIBUTION', 'BUY', 'SELL', 'DIVIDEND', 'FEE'].includes(kind)) {
+    // Saknad valutakurs blir ett fel via checkTransaction nedan (samma kontroll som Ny transaktion och Import)
     const fx = num(fields.fx_rate) ?? getMarket().fxRate(ins.currency, date);
-    if (!isFinite(fx)) checks.push({ level: 'error', code: 'fx', message: `Valutakurs ${ins.currency} saknas – ange den manuellt` });
-    else if (!num(fields.fx_rate)) checks.push({ level: 'info', code: 'fx', message: `Valutakurs ${fmt(fx, 4)} SEK/${ins.currency} hämtas från registrerade kurser` });
+    if (isFinite(fx) && !num(fields.fx_rate)) checks.push({ level: 'info', code: 'fx', message: `Valutakurs ${fmt(fx, 4)} SEK/${ins.currency} hämtas från registrerade kurser` });
   }
 
   // Delposter ska summera till totalen och avgiftsdelen stämma
@@ -309,6 +310,21 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
     }
   }
 
+  // Samma kontroller som Ny transaktion och Import (F10): tecken, valutakurs, innehav och åtagande över tidslinjen
+  let txCodes: string[] = [];
+  if (ins && ent && date && isDate(date) && KIND_TYPES[kind].includes(ins.type)) {
+    if (kind === 'CALL' && amount != null && amount >= 0 && fee > amount) {
+      checks.push({ level: 'error', code: 'call_fee', message: `Avgiften (${fmt(fee, 2)}) är större än det totala beloppet (${fmt(amount, 2)}) – investeringsdelen får inte bli negativ` });
+    } else {
+      const cand = candidate(p.kind, fields, ins, ent.id, date);
+      if (cand) {
+        const r = checkTransaction(cand);
+        txCodes = r.codes;
+        r.errors.forEach((message, i) => checks.push({ level: 'error', code: `tx_${r.codes[i]}`, message }));
+      }
+    }
+  }
+
   // Effekt och avstämning mot bokfört innehav
   if (ins && ent && date && isDate(date)) {
     const m = getMarket();
@@ -316,10 +332,9 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
     if (ins.type === 'PE_FUND') {
       const asOf = date;
       const before = peHolding(ins, ent.id, txs, m, asOf);
-      if (kind === 'CALL' && amount != null) {
-        if (before.commitment > 0 && amount > before.uncalled + 1) checks.push({ level: 'warning', code: 'over_commit', message: `Anropet (${fmt(amount)}) överstiger outnyttjat åtagande (${fmt(before.uncalled)})` });
-        else if (before.commitment > 0) checks.push({ level: 'ok', code: 'over_commit', message: `Ryms inom outnyttjat åtagande (${fmt(before.uncalled)} ${ins.currency})` });
-        else checks.push({ level: 'warning', code: 'no_commit', message: 'Inget åtagande är registrerat för enheten i denna fond' });
+      // Anrop över åtagandet är ett fel från checkTransaction (F5, F10), inte en varning som kan kvitteras
+      if (kind === 'CALL' && amount != null && before.commitment > 0 && !txCodes.length) {
+        checks.push({ level: 'ok', code: 'over_commit', message: `Ryms inom outnyttjat åtagande (${fmt(before.uncalled)} ${ins.currency})` });
       }
       if (kind === 'DISTRIBUTION' && amount != null && before.paidIn === 0) checks.push({ level: 'warning', code: 'dist_no_paid', message: 'Utdelning registreras men inget kapital har betalats in' });
       if (kind === 'NAV' && amount != null) {
@@ -365,7 +380,7 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
       }
     } else {
       const before = listedHolding(ins, ent.id, txs, m, date);
-      if (kind === 'SELL' && qty != null && qty > before.quantity + 1e-9) checks.push({ level: 'error', code: 'oversell', message: `Försäljningen (${fmt(qty, 4)}) överstiger innehavet per ${date} (${fmt(before.quantity, 4)})` });
+      // Försäljning över innehavet (även senare försäljningar) är ett fel från checkTransaction (F4, F10)
       if (kind === 'HOLDING' && qty != null) {
         const diff = qty - before.quantity;
         if (Math.abs(diff) < 1e-6) checks.push({ level: 'ok', code: 'reconcile', message: `Antal stämmer med bokfört innehav (${fmt(before.quantity, 4)})` });
@@ -395,7 +410,7 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
   return { checks, preview, blocking, canApprove: blocking.length === 0 && p.status === 'pending', needsAck: checks.some((c) => c.level === 'warning') };
 }
 
-/** Transaktionen som skulle skapas (utan att spara). */
+/** Transaktionen som skulle skapas (utan att spara) – används bara för förhandsvisningen av effekten. */
 function hypothetical(p: ProposalRow, f: Record<string, PField>, ins: Instrument, entityId: number, date: string): Transaction | null {
   if (!['CALL', 'DISTRIBUTION', 'BUY', 'SELL', 'DIVIDEND', 'FEE', 'COMMITMENT'].includes(p.kind)) return null;
   const amount = num(f.amount);
@@ -414,6 +429,28 @@ function hypothetical(p: ProposalRow, f: Record<string, PField>, ins: Instrument
     outside_commitment: outside, recallable,
     id: 1e12, entity_id: entityId, instrument_id: ins.id, type: p.kind as Transaction['type'], trade_date: date, settle_date: str(f.settle_date),
     quantity: p.kind === 'BUY' || p.kind === 'SELL' ? qty : 0, price, amount: isCall ? amt - fee : amt, fee: p.kind === 'COMMITMENT' ? 0 : fee, fx_rate: fx, note: null,
+  };
+}
+
+/**
+ * Transaktionen som skulle skapas, i samma form som ett anrop till POST /transactions. Används för att
+ * pröva posten med checkTransaction och för att skriva den vid godkännande. Kapitalanrop: amount i
+ * Inkorgen är hela anropet, och i transaktionen är amount investeringsdelen (amount − avgift).
+ */
+function candidate(kind: Kind, f: Record<string, PField>, ins: Instrument, entityId: number, date: string): Record<string, unknown> | null {
+  if (!['CALL', 'DISTRIBUTION', 'BUY', 'SELL', 'DIVIDEND', 'FEE', 'COMMITMENT'].includes(kind)) return null;
+  const amount = num(f.amount);
+  const qty = num(f.quantity);
+  const price = num(f.price);
+  const fee = num(f.fee) ?? 0;
+  const trade = kind === 'BUY' || kind === 'SELL';
+  const amt = amount ?? (trade && qty != null && price != null ? qty * price : null);
+  if (amt == null || !isFinite(amt)) return null;
+  return {
+    entity_id: entityId, instrument_id: ins.id, type: kind, trade_date: date, settle_date: str(f.settle_date),
+    quantity: trade ? qty : 0, price: price ?? 0, amount: kind === 'CALL' ? amt - fee : amt, fee: kind === 'COMMITMENT' ? 0 : fee,
+    fx_rate: num(f.fx_rate), note: str(f.note),
+    outside_commitment: kind === 'CALL' ? num(f.outside_commitment) ?? 0 : 0, recallable: kind === 'DISTRIBUTION' ? num(f.recallable) ?? 0 : 0,
   };
 }
 
@@ -464,11 +501,16 @@ export function approve(id: number, userId: number | null, opts: { acknowledgeWa
         ref = `reconciled:${p.entity_id}:${p.instrument_id}:${date}`;
         break;
       default: {
-        const t = hypothetical(p, f, ins, p.entity_id!, date)!;
+        // Samma validering som Ny transaktion och Import – aldrig direkt från förhandsvisningen (F10)
+        const cand = candidate(p.kind, f, ins, p.entity_id!, date);
+        if (!cand) throw new HttpError(400, 'Posten är ofullständig');
+        const checked = checkTransaction(cand);
+        if (!checked.value) throw new HttpError(400, checked.errors.join(' · '));
+        const t = checked.value;
         const r = run(
           'INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by,document_id,details,outside_commitment,recallable) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
           t.entity_id, t.instrument_id, t.type, t.trade_date, t.settle_date, t.quantity, t.price, t.amount, t.fee, t.fx_rate,
-          str(f.note), userId, p.document_id, lines ? JSON.stringify(lines) : null, t.outside_commitment ?? 0, t.recallable ?? 0,
+          t.note, userId, p.document_id, lines ? JSON.stringify(lines) : null, t.outside_commitment, t.recallable,
         );
         ref = `transaction:${r.lastInsertRowid}`;
       }

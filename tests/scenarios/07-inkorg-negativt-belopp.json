@@ -10,6 +10,7 @@
     { "anrop": "PUT /api/proposals/{{post}}", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "fields": { "date": "2026-03-01", "amount": -500000, "currency": "SEK" } } }
   ],
   "kontroller": [
-    { "namn": "Posten kan inte godkännas", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].canApprove", "forvantat": false, "kantFel": "Granskning fynd 4: negativa belopp blockeras inte" }
+    { "namn": "Posten kan inte godkännas", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].canApprove", "forvantat": false },
+    { "namn": "Felet säger att beloppet inte får vara negativt", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].blocking", "innehaller": "Belopp får inte vara negativt" }
   ]
 }

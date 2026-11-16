@@ -120,6 +120,54 @@ test('F6: avstämning – GP:s inbetalt utan utjämningsränta godtas och förkl
   assert.ok(!ev.checks.some((c) => c.level === 'warning'), JSON.stringify(ev.checks.filter((c) => c.level === 'warning')));
 });
 
+// ---------------------------------------------------------------------------
+// F10: Inkorgen gör samma kontroller som Ny transaktion och Import
+// ---------------------------------------------------------------------------
+
+test('F10: bakdaterad försäljning som gör innehavet negativt stoppas i Inkorgen', () => {
+  db.run("INSERT INTO instruments (id, type, name, isin, currency) VALUES (4, 'EQUITY', 'Testaktie Tidslinje', 'SE0000000004', 'SEK')");
+  db.run("INSERT INTO transactions (entity_id, instrument_id, type, trade_date, quantity, price, amount) VALUES (1, 4, 'BUY', '2025-01-10', 100, 10, 1000), (1, 4, 'SELL', '2025-03-10', 100, 12, 1200)");
+  const [p] = newDoc([item({ kind: 'SELL', isin: F('SE0000000004'), investor_label: F('Alfa AB'), date: F('2025-02-10'), currency: F('SEK'), quantity: F(50), price: F(11), amount: F(550) })]);
+  const ev = P.evaluate(p, p.document_id);
+  assert.equal(ev.canApprove, false);
+  assert.ok(ev.blocking.some((b) => /Försäljningen 2025-03-10 \(100\) överstiger innehavet \(50\)/.test(b)), JSON.stringify(ev.blocking));
+  assert.throws(() => P.approve(p.id, null, { acknowledgeWarnings: true }), (e: Error & { status?: number }) => e.status === 400 && /överstiger/.test(e.message));
+});
+
+test('F10: kapitalanrop över åtagandet är ett fel i Inkorgen, inte en varning', () => {
+  db.run("INSERT INTO instruments (id, type, name, isin, currency) VALUES (5, 'PE_FUND', 'Testfond Överanrop Inkorg', NULL, 'SEK')");
+  db.run("INSERT INTO transactions (entity_id, instrument_id, type, trade_date, amount) VALUES (1, 5, 'COMMITMENT', '2025-01-01', 100000)");
+  const [p] = newDoc([item({ kind: 'CALL', instrument_name: F('Testfond Överanrop Inkorg'), investor_label: F('Alfa AB'), date: F('2025-04-01'), currency: F('SEK'), amount: F(150_000), fee: F(0) })]);
+  const ev = P.evaluate(p, p.document_id);
+  assert.equal(ev.canApprove, false);
+  assert.ok(ev.checks.some((c) => c.level === 'error' && /överstiger outnyttjat åtagande/.test(c.message)), JSON.stringify(ev.checks));
+  assert.ok(!ev.checks.some((c) => c.level === 'warning' && /överstiger/.test(c.message)), 'ingen kvitterbar varning');
+  assert.throws(() => P.approve(p.id, null, { acknowledgeWarnings: true }), /åtagande/);
+});
+
+test('F10: affär i USD före första USD-kursen utan angiven kurs stoppas i Inkorgen', async () => {
+  db.run("INSERT INTO instruments (id, type, name, isin, currency) VALUES (6, 'EQUITY', 'Test Inc USD', 'US0000000006', 'USD')");
+  db.run("INSERT INTO fx_rates (currency, date, rate) VALUES ('USD', '2025-10-01', 10.5)");
+  (await import('./data.ts')).bumpVersion();
+  const [p] = newDoc([item({ kind: 'BUY', isin: F('US0000000006'), investor_label: F('Alfa AB'), date: F('2025-01-15'), currency: F('USD'), quantity: F(10), price: F(100), amount: F(1000) })]);
+  const ev = P.evaluate(p, p.document_id);
+  assert.equal(ev.canApprove, false);
+  assert.ok(ev.blocking.some((b) => /Valutakurs för USD saknas/.test(b)), JSON.stringify(ev.blocking));
+  assert.throws(() => P.approve(p.id, null, { acknowledgeWarnings: true }), /Valutakurs/);
+  // Med angiven kurs går posten igenom
+  const f = JSON.parse(p.fields);
+  f.fx_rate = { ...f.fx_rate, value: 10, edited: true };
+  db.run('UPDATE proposals SET fields=? WHERE id=?', JSON.stringify(f), p.id);
+  const ref = P.approve(p.id, null, { acknowledgeWarnings: true });
+  assert.equal(db.get<{ fx_rate: number }>('SELECT fx_rate FROM transactions WHERE id=?', Number(ref.split(':')[1]))!.fx_rate, 10);
+});
+
+test('F10: avgift större än det totala anropet stoppas', () => {
+  const [p] = newDoc([item({ kind: 'CALL', instrument_name: F('Nordic Buyout Partners IV'), investor_label: F('Alfa AB'), date: F('2025-11-01'), currency: F('SEK'), amount: F(5_000), fee: F(8_000) })]);
+  const ev = P.evaluate(p, p.document_id);
+  assert.ok(ev.blocking.some((b) => /investeringsdelen får inte bli negativ/.test(b)), JSON.stringify(ev.blocking));
+});
+
 test('namnmatchning skiljer på fondnummer', () => {
   assert.equal(P.nameScore('Nordic Buyout Partners V', 'Nordic Buyout Partners IV'), 0);
   assert.ok(P.nameScore('Nordic Buyout Partners IV SCSp', 'Nordic Buyout Partners IV') > 0.9);

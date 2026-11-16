@@ -158,3 +158,23 @@ test('F5: överanrop i äldre data syns som negativt outnyttjat och i integritet
   const { exposureUncalled } = await import('./calc.ts');
   assert.equal(exposureUncalled(h), 0, 'summeringar räknar negativt outnyttjat som 0');
 });
+
+// ---------------------------------------------------------------------------
+// F10: checkTransaction samlar alla fel utan att kasta
+// ---------------------------------------------------------------------------
+
+test('F10: checkTransaction ger fel för negativa värden utan att kasta', () => {
+  const r = V.checkTransaction({ entity_id: 1, instrument_id: 12, type: 'CALL', trade_date: '2026-05-01', amount: -500_000, fee: -1, outside_commitment: -2 });
+  assert.equal(r.value, null);
+  assert.ok(r.errors.includes('Belopp får inte vara negativt'), JSON.stringify(r.errors));
+  assert.ok(r.errors.includes('Avgift får inte vara negativt'), JSON.stringify(r.errors));
+  assert.ok(r.errors.includes('Varav utanför åtagandet får inte vara negativt'), JSON.stringify(r.errors));
+  assert.throws(() => V.validateTransaction({ entity_id: 1, instrument_id: 12, type: 'CALL', trade_date: '2026-05-01', amount: -500_000 }), /Belopp får inte vara negativt/);
+  const q = V.checkTransaction({ entity_id: 1, instrument_id: 1, type: 'BUY', trade_date: '2026-05-01', quantity: -5, price: -1, fx_rate: -3 });
+  for (const m of ['Antal får inte vara negativt', 'Kurs får inte vara negativt', 'Valutakurs får inte vara negativt']) assert.ok(q.errors.includes(m), JSON.stringify(q.errors));
+});
+
+test('F10: utanför åtagandet får inte vara större än avgiften', () => {
+  const r = V.checkTransaction({ entity_id: 1, instrument_id: 12, type: 'CALL', trade_date: '2026-05-01', amount: 1_000, fee: 500, outside_commitment: 800 });
+  assert.ok(r.errors.some((e) => /utanför åtagandet .*större än avgiften/.test(e)), JSON.stringify(r.errors));
+});
