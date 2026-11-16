@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Market, listedHolding, peHolding, snapshot, valueSeries, periodReturns } from './calc.ts';
+import { Market, listedHolding, peHolding, snapshot, valueSeries, periodReturns, portfolioIrr } from './calc.ts';
 import { xirr } from './xirr.ts';
 import type { Instrument, Transaction } from '../shared/types.ts';
 
@@ -265,4 +265,20 @@ test('F6: utdelning med källskatt minskar framräknat NAV med bruttobeloppet', 
   const h = peHolding(pe, 1, txs, m, '2026-06-30');
   close(h.nav, 400_000);
   close(h.distributed, 90_000);
+});
+
+// ---------------------------------------------------------------------------
+// F7 (förbättring 2026-11-15): IRR för hela portföljen
+// ---------------------------------------------------------------------------
+
+test('F7: IRR för hela portföljen över alla kassaflöden, och ett aviserat anrop efter asOf påverkar inte', () => {
+  const txs = [
+    tx({ instrument_id: 1, type: 'BUY', quantity: 1_000, price: 100, amount: 100_000, trade_date: '2025-06-30' }),
+    tx({ instrument_id: 2, type: 'COMMITMENT', amount: 500_000, trade_date: '2025-06-30' }),
+    tx({ instrument_id: 2, type: 'CALL', amount: 100_000, trade_date: '2025-06-30' }),
+  ];
+  // 200 000 in, 250 000 värde efter exakt 365 dagar → 25 %
+  close(portfolioIrr(txs, 250_000, '2026-06-30'), 0.25, 1e-6);
+  const withFuture = [...txs, tx({ instrument_id: 2, type: 'CALL', amount: 50_000, trade_date: '2026-09-15' })];
+  close(portfolioIrr(withFuture, 250_000, '2026-06-30'), 0.25, 1e-6);
 });

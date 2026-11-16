@@ -117,7 +117,7 @@ Kända fel som ännu inte är rättade ligger kvar som scenarier märkta `kantFe
 - **Avkastning** är tidsviktad (TWR) och bryts vid varje transaktionsdag. Köp, försäljningar, anrop och utdelningar räknas som externa flöden, och flödena nettas per dag. Ett nettoinflöde räknas som investerat från dagens början, r = (V1 − V0 − F) / (V0 + F), så att till exempel avgiften i ett kapitalanrop mäts mot det nya kapitalet. Ett nettoutflöde räknas som uttaget vid dagens slut, r = (V1 − V0 − F) / V0. Periodavkastning (1 mån, 3 mån, i år, 1 år och 3 år) mäts från periodens exakta startdag, till exempel från 31 december för "I år". Om portföljen inte har haft något värde under perioden visas "–" i stället för 0 %.
 - **Outnyttjat åtagande** = åtagande − anropat (exklusive utjämningsränta utanför åtagandet) + återinkallningsbara utdelningar. Per fond visas ett negativt belopp om äldre data innehåller ett överanrop. I summeringar av exponering och likviditet räknas en sådan fond som 0.
 - **Kassaflödesprognos** enligt Takahashi & Alexander (2002) med schablonparametrar per strategi (tillväxt, löptid, bow, anropstakt).
-- **IRR** är XIRR på faktiska kassaflöden plus NAV som slutvärde.
+- **IRR** är XIRR på faktiska kassaflöden plus NAV som slutvärde. För Total portfölj under Avkastning används alla kassaflöden i portföljen (köp, försäljningar, utdelningar, anrop och avgifter) t.o.m. dagen, med portföljens värde som slutvärde. Raderna per tillgångsslag visar de slutna fondernas IRR.
 
 Beräkningarna finns i `server/calc.ts` och testas i `server/calc.test.ts` (`npm test`).
 

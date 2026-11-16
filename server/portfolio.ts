@@ -3,8 +3,8 @@ import { Router } from 'express';
 import { all, get, run, audit } from './db.ts';
 import { HttpError, requireRole } from './auth.ts';
 import { cached, parseDate, parseEntities, portfolioData, today } from './data.ts';
-import { TA_DEFAULTS, addDays, exposureUncalled, peHolding, periodReturns, snapshot, taForecast, totalValue, valueSeries, xirrSafe } from './calc.ts';
-import { ASSET_CLASSES, type AssetClass, type Instrument, type Transaction } from '../shared/types.ts';
+import { TA_DEFAULTS, addDays, exposureUncalled, periodReturns, portfolioIrr, snapshot, taForecast, totalValue, valueSeries } from './calc.ts';
+import { ASSET_CLASSES, type AssetClass, type Instrument } from '../shared/types.ts';
 
 export const portfolioRoutes = Router();
 
@@ -93,22 +93,17 @@ portfolioRoutes.get('/portfolio/performance', (req, res) => {
     const rowFor = (label: string, key: string, ids: Set<number> | null) => {
       const sub = ids ? { ...data, instruments: data.instruments.filter((i) => ids.has(i.id)), transactions: data.transactions.filter((t) => ids.has(t.instrument_id)) } : data;
       const series = valueSeries(sub, from, asOf, 7);
-      const value = totalValue(snapshot(sub, asOf));
+      const snap = snapshot(sub, asOf);
+      const value = totalValue(snap);
       const priv = sub.instruments.filter((i) => i.type === 'PE_FUND');
       let irr: number | null = null;
-      if (priv.length) {
-        const flows: { date: string; amount: number }[] = [];
-        let nav = 0;
-        for (const ins of priv) {
-          const by = new Map<number, Transaction[]>();
-          for (const t of sub.transactions.filter((t) => t.instrument_id === ins.id)) by.set(t.entity_id, [...(by.get(t.entity_id) ?? []), t]);
-          for (const [e, txs] of by) {
-            const h = peHolding(ins, e, txs, sub.market, asOf);
-            flows.push(...h.flowsBase);
-            nav += h.navBase;
-          }
-        }
-        irr = xirrSafe([...flows, { date: asOf, amount: nav }]);
+      if (!ids) {
+        // Total portfölj: internräntan för alla kassaflöden i portföljen med dagens värde som slutvärde
+        irr = portfolioIrr(sub.transactions, value, asOf);
+      } else if (priv.length) {
+        // Tillgångsslag: som tidigare de slutna fondernas IRR
+        const privIds = new Set(priv.map((i) => i.id));
+        irr = portfolioIrr(sub.transactions.filter((t) => privIds.has(t.instrument_id)), snap.pe.reduce((a, h) => a + h.navBase, 0), asOf);
       }
       return { key, label, value, returns: periodReturns(series, asOf), irr, hasPrivate: priv.length > 0, series: series.filter((_, i) => i % 2 === 0 || i === series.length - 1).map((p) => ({ date: p.date, index: p.index })) };
     };

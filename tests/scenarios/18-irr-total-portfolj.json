@@ -14,6 +14,6 @@
   "kontroller": [
     { "namn": "Portföljvärde 250 000", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.value", "forvantat": 250000 },
     { "namn": "Private equity IRR 0 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "rows[key=PRIVATE_EQUITY].irr", "forvantat": 0, "tolerans": 0.0005 },
-    { "namn": "Total portfölj IRR 25 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.irr", "forvantat": 0.25, "tolerans": 0.001, "kantFel": "Placerare 2026-11-15 fel 11: Total portfölj visar de slutna fondernas IRR" }
+    { "namn": "Total portfölj IRR 25 %", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.irr", "forvantat": 0.25, "tolerans": 0.001 }
   ]
 }

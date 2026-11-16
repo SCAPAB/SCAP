@@ -35,7 +35,7 @@ export default function Performance() {
       <div className="page-head">
         <div>
           <h1>Avkastning</h1>
-          <p>Tidsviktad avkastning (TWR) i SEK per tillgångsslag per {data.asOf}, efter avgifter och inklusive utdelningar. För slutna fonder visas även netto-IRR sedan start.</p>
+          <p>Tidsviktad avkastning (TWR) i SEK per tillgångsslag per {data.asOf}, efter avgifter och inklusive utdelningar. Netto-IRR sedan start visas för hela portföljen och för slutna fonder.</p>
         </div>
       </div>
       <div className="card">
@@ -45,7 +45,7 @@ export default function Performance() {
               <tr>
                 <th>Tillgångsslag</th><th className="num">Marknadsvärde</th>
                 {periods.map((p) => <th key={p.key} className="num" title={`Från ${p.from}`}>{p.label}</th>)}
-                <th className="num" title="Netto-IRR i SEK för slutna fonder, sedan första kassaflöde">IRR sedan start</th>
+                <th className="num" title="Netto-IRR i SEK sedan första kassaflöde. Total portfölj: alla kassaflöden. Tillgångsslag: slutna fonder.">IRR sedan start</th>
               </tr>
             </thead>
             <tbody>
@@ -57,7 +57,7 @@ export default function Performance() {
                   </td>
                   <td className="num">{fmt.msek(r.value)}</td>
                   {r.returns.map((p) => <td key={p.key} className={'num ' + tone(p.value)}>{fmt.signedPct(p.value)}</td>)}
-                  <td className="num">{r.hasPrivate ? <span className={tone(r.irr)}>{fmt.pct(r.irr)}</span> : <span className="muted">–</span>}</td>
+                  <td className="num">{r.key === 'TOTAL' || r.hasPrivate ? <span className={tone(r.irr)}>{fmt.pct(r.irr)}</span> : <span className="muted">–</span>}</td>
                 </tr>
               ))}
             </tbody>

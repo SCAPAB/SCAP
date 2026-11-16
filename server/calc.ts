@@ -421,6 +421,16 @@ export function externalFlow(t: Transaction): number {
   }
 }
 
+/**
+ * Internränta (IRR) i SEK för en portfölj: alla kassaflöden (köp, försäljningar, utdelningar, anrop
+ * och avgifter) t.o.m. asOf, med värdet per asOf som slutvärde. Aviserade framtida anrop ingår inte.
+ * För enbart slutna fonder ger den samma resultat som fondernas sammanlagda IRR.
+ */
+export function portfolioIrr(transactions: Transaction[], value: number, asOf: string): number | null {
+  const flows = transactions.filter((t) => t.trade_date <= asOf).map((t) => ({ date: t.trade_date, amount: -externalFlow(t) }));
+  return xirr([...flows, { date: asOf, amount: value }]);
+}
+
 // ---------------------------------------------------------------------------
 // Tidsserie och tidsviktad avkastning
 // ---------------------------------------------------------------------------
