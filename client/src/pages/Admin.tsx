@@ -169,7 +169,7 @@ function Controls() {
         <input type="checkbox" checked={data.dual_control} onChange={(e) => save({ dual_control: e.target.checked })} style={{ marginTop: 3 }} />
         <span>
           <strong>Fyra ögon-principen för underlag i Inkorgen</strong>
-          <div className="small muted">En användare granskar och markerar posten, en annan användare attesterar innan den bokförs. Rekommenderas för institutionell förvaltning.</div>
+          <div className="small muted">En användare granskar och markerar posten, en annan användare attesterar innan den bokförs. En attesterad transaktion kan sedan bara ändras eller tas bort via en ändringsbegäran som en annan användare attesterar. Rekommenderas för institutionell förvaltning.</div>
         </span>
       </label>
       <label className="field" style={{ maxWidth: 360 }}>Rapporteringstid för kvartalsrapporter (dagar efter kvartalsslut)

@@ -11,7 +11,7 @@ if (!process.argv.includes('--ja')) {
   console.error('Detta raderar all data. Kör: npm run reset -- --ja');
   process.exit(1);
 }
-const tables = ['ms_sync_log', 'aliases', 'policy_targets', 'settings', 'proposals', 'extraction_rules', 'audit_log', 'sessions', 'transactions',
+const tables = ['change_requests', 'ms_sync_log', 'aliases', 'policy_targets', 'settings', 'proposals', 'extraction_rules', 'audit_log', 'sessions', 'transactions',
   'documents', 'prices', 'pe_valuations', 'fx_rates', 'instruments', 'entities', 'users'];
 db.exec('BEGIN');
 for (const t of tables) db.exec(`DELETE FROM ${t}`);

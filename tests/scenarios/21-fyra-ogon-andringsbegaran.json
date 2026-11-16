@@ -1,0 +1,32 @@
+{
+  "namn": "Fyra ögon – ändring av en attesterad transaktion via ändringsbegäran",
+  "beskrivning": "Förbättring 2026-11-15, F9. Fyra ögon är påslaget. Ett kapitalanrop (totalt 105 000 kr varav avgift 5 000) granskas av administratören och attesteras av en annan användare → transaktion 2 (investering 100 000 + avgift 5 000). Administratören begär att investeringen rättas till 95 000. Administratören kan inte attestera sin egen begäran (403). Attestanten attesterar, och först då genomförs ändringen: inbetalt = 95 000 + 5 000 = 100 000 kr. Båda namnen loggas.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "PUT /api/settings", "data": { "dual_control": true } },
+    { "anrop": "POST /api/users", "data": { "email": "attestant@test.invalid", "name": "Test Attestant", "role": "editor", "password": "attest-12345" } },
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Ändring I", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-01-01", "amount": 1000000 } },
+    { "anrop": "POST /api/documents", "data": { "filename": "anrop-andring.pdf", "mime": "application/pdf", "data": "JVBERi0xLjQKJXRlc3RkYXRhIGZvciBzY2VuYXJpbyAyMQo=" }, "spara": "dok" },
+    { "anrop": "POST /api/documents/{{dok}}/proposals", "data": { "kind": "CALL" }, "spara": "post" },
+    { "anrop": "PUT /api/proposals/{{post}}", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "fields": { "date": "2026-03-01", "amount": 105000, "fee": 5000, "currency": "SEK" } } },
+    { "beskrivning": "Administratören granskar", "anrop": "POST /api/proposals/{{post}}/prepare", "data": {} },
+    { "beskrivning": "Attestanten loggar in", "anrop": "POST /api/auth/login", "data": { "email": "attestant@test.invalid", "password": "attest-12345" } },
+    { "beskrivning": "Attestanten godkänner (transaktion 2)", "anrop": "POST /api/proposals/{{post}}/approve", "data": {} },
+    { "beskrivning": "Administratören loggar in igen", "anrop": "POST /api/auth/login", "data": { "email": "admin@innehav.local", "password": "innehav" } },
+    { "beskrivning": "Direkt ändring stoppas", "anrop": "PUT /api/transactions/2", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-03-01", "amount": 95000, "fee": 5000 }, "forvantadStatus": 409, "felInnehaller": "Skicka ändringen för attest" },
+    { "beskrivning": "Administratören begär ändringen", "anrop": "POST /api/transactions/2/change-requests", "data": { "action": "update", "payload": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-03-01", "amount": 95000, "fee": 5000 }, "comment": "Rättad avi" }, "spara": "begaran" },
+    { "beskrivning": "Samma användare kan inte attestera sin egen begäran", "anrop": "POST /api/change-requests/{{begaran}}/approve", "data": {}, "forvantadStatus": 403, "felInnehaller": "annan användare" },
+    { "beskrivning": "Attestanten loggar in", "anrop": "POST /api/auth/login", "data": { "email": "attestant@test.invalid", "password": "attest-12345" } },
+    { "beskrivning": "Attestanten attesterar ändringen", "anrop": "POST /api/change-requests/{{begaran}}/approve", "data": {} },
+    { "beskrivning": "Administratören loggar in igen", "anrop": "POST /api/auth/login", "data": { "email": "admin@innehav.local", "password": "innehav" } }
+  ],
+  "kontroller": [
+    { "namn": "Inbetalt efter attesterad ändring 100 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.paidIn", "forvantat": 100000 },
+    { "namn": "Begäran är attesterad", "hamta": "GET /api/change-requests?status=all", "falt": "[0].status", "forvantat": "approved" },
+    { "namn": "Begäran visar vem som begärde", "hamta": "GET /api/change-requests?status=all", "falt": "[0].requested_by_name", "forvantat": "Administratör" },
+    { "namn": "Begäran visar vem som attesterade", "hamta": "GET /api/change-requests?status=all", "falt": "[0].decided_by_name", "forvantat": "Test Attestant" },
+    { "namn": "Ändringsloggen har attesten", "hamta": "GET /api/audit", "falt": "[action=approve].object", "forvantat": "change_request" },
+    { "namn": "Transaktionen är fortfarande attesterad", "hamta": "GET /api/transactions?instrument={{pe}}&type=CALL", "falt": "[0].attested", "forvantat": 1 }
+  ]
+}

@@ -191,3 +191,19 @@ CREATE TABLE IF NOT EXISTS ms_sync_log (
   summary TEXT,
   details TEXT
 );
+
+-- Ändringsbegäran för en attesterad transaktion (fyra ögon-principen): ändringen genomförs först när
+-- en annan användare än den som begärde den har attesterat. payload = de validerade nya värdena (update).
+CREATE TABLE IF NOT EXISTS change_requests (
+  id             INTEGER PRIMARY KEY,
+  transaction_id INTEGER NOT NULL,          -- ingen främmande nyckel: begäran finns kvar för spårbarhet efter ett borttag
+  action         TEXT NOT NULL CHECK (action IN ('update','delete')),
+  payload        TEXT,
+  requested_by   INTEGER REFERENCES users(id),
+  requested_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  decided_by     INTEGER REFERENCES users(id),
+  decided_at     TEXT,
+  comment        TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_change_tx ON change_requests(transaction_id, status);

@@ -1,0 +1,27 @@
+{
+  "namn": "Fyra ögon – borttag av en attesterad transaktion via ändringsbegäran",
+  "beskrivning": "Förbättring 2026-11-15, F9. Fyra ögon är påslaget. Ett attesterat kapitalanrop (transaktion 2, inbetalt 105 000) kan inte tas bort direkt (409). Administratören begär borttag och attestanten attesterar. Därefter finns bara åtagandet kvar: inbetalt 0 och outnyttjat 1 000 000.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "PUT /api/settings", "data": { "dual_control": true } },
+    { "anrop": "POST /api/users", "data": { "email": "attestant@test.invalid", "name": "Test Attestant", "role": "editor", "password": "attest-12345" } },
+    { "anrop": "POST /api/instruments", "data": { "type": "PE_FUND", "name": "Testfond Ändring I", "currency": "SEK", "strategy": "Buyout", "vintage": 2025, "manager": "Test GP" }, "spara": "pe" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "COMMITMENT", "trade_date": "2025-01-01", "amount": 1000000 } },
+    { "anrop": "POST /api/documents", "data": { "filename": "anrop-andring.pdf", "mime": "application/pdf", "data": "JVBERi0xLjQKJXRlc3RkYXRhIGZvciBzY2VuYXJpbyAyMgo=" }, "spara": "dok" },
+    { "anrop": "POST /api/documents/{{dok}}/proposals", "data": { "kind": "CALL" }, "spara": "post" },
+    { "anrop": "PUT /api/proposals/{{post}}", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "fields": { "date": "2026-03-01", "amount": 105000, "fee": 5000, "currency": "SEK" } } },
+    { "beskrivning": "Administratören granskar", "anrop": "POST /api/proposals/{{post}}/prepare", "data": {} },
+    { "beskrivning": "Attestanten loggar in", "anrop": "POST /api/auth/login", "data": { "email": "attestant@test.invalid", "password": "attest-12345" } },
+    { "beskrivning": "Attestanten godkänner (transaktion 2)", "anrop": "POST /api/proposals/{{post}}/approve", "data": {} },
+    { "beskrivning": "Administratören loggar in igen", "anrop": "POST /api/auth/login", "data": { "email": "admin@innehav.local", "password": "innehav" } },
+    { "beskrivning": "Direkt borttag stoppas", "anrop": "DELETE /api/transactions/2", "forvantadStatus": 409, "felInnehaller": "attesterad" },
+    { "beskrivning": "Administratören begär borttag", "anrop": "POST /api/transactions/2/change-requests", "data": { "action": "delete", "comment": "Felaktig avi" }, "spara": "begaran" },
+    { "beskrivning": "Attestanten loggar in", "anrop": "POST /api/auth/login", "data": { "email": "attestant@test.invalid", "password": "attest-12345" } },
+    { "beskrivning": "Attestanten attesterar borttaget", "anrop": "POST /api/change-requests/{{begaran}}/approve", "data": {} }
+  ],
+  "kontroller": [
+    { "namn": "Inbetalt 0", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.paidIn", "forvantat": 0 },
+    { "namn": "Outnyttjat 1 000 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.uncalled", "forvantat": 1000000 },
+    { "namn": "Inga kapitalanrop kvar", "hamta": "GET /api/transactions?instrument={{pe}}&type=CALL", "forvantat": [] }
+  ]
+}

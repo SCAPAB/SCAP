@@ -6,13 +6,20 @@ import { fmt, today } from '../format';
 import { LISTED_TX_TYPES, PE_TX_TYPES, TX_LABELS, type Instrument, type Transaction, type TxType } from '../../../shared/types';
 
 type Draft = Partial<Record<keyof Transaction, string>>;
+/** En befintlig transaktion med uppgift om fyra ögon: attesterad och eventuell väntande ändringsbegäran. */
+export type TxRow = Transaction & { attested?: number | boolean; pending_change_id?: number | null };
 
-export default function TxForm({ initial, instrumentId, onClose }: { initial?: Transaction; instrumentId?: number; onClose: () => void }) {
+export default function TxForm({ initial, instrumentId, onClose }: { initial?: TxRow; instrumentId?: number; onClose: () => void }) {
   const { entities, bump } = useApp();
   const { data: instruments } = useFetch<Instrument[]>('/instruments');
+  const { data: settings } = useFetch<{ dual_control: boolean }>('/settings');
+  // Fyra ögon: en attesterad transaktion ändras eller tas bort via en ändringsbegäran som en annan användare attesterar
+  const locked = !!initial?.attested && !!settings?.dual_control;
+  const pending = !!initial?.pending_change_id;
+  const [sent, setSent] = useState<string | null>(null);
   const [d, setD] = useState<Draft>(() =>
     initial
-      ? Object.fromEntries(Object.entries(initial).map(([k, v]) => [k, v == null ? '' : String(v)]))
+      ? Object.fromEntries(Object.entries(initial).filter(([k]) => k !== 'attested' && k !== 'pending_change_id').map(([k, v]) => [k, v == null ? '' : String(v)]))
       : {
         entity_id: String(entities[0]?.id ?? ''),
         instrument_id: instrumentId ? String(instrumentId) : '',
@@ -38,6 +45,12 @@ export default function TxForm({ initial, instrumentId, onClose }: { initial?: T
     setError(null);
     try {
       const body = { ...d, amount: d.amount || (isFinite(computed) ? String(computed) : '') };
+      if (initial && locked) {
+        await api.post(`/transactions/${initial.id}/change-requests`, { action: 'update', payload: body });
+        bump();
+        setSent('Ändringen är skickad för attest. Den genomförs när en annan användare har attesterat den under Inkorg.');
+        return;
+      }
       if (initial) await api.put(`/transactions/${initial.id}`, body);
       else await api.post('/transactions', body);
       bump();
@@ -49,10 +62,21 @@ export default function TxForm({ initial, instrumentId, onClose }: { initial?: T
     }
   };
   const del = async () => {
-    if (!initial || !confirm('Ta bort transaktionen? Åtgärden loggas.')) return;
-    await api.del(`/transactions/${initial.id}`);
-    bump();
-    onClose();
+    if (!initial || !confirm(locked ? 'Begär att transaktionen tas bort? En annan användare måste attestera borttaget.' : 'Ta bort transaktionen? Åtgärden loggas.')) return;
+    setError(null);
+    try {
+      if (locked) {
+        await api.post(`/transactions/${initial.id}/change-requests`, { action: 'delete' });
+        bump();
+        setSent('Borttaget är skickat för attest. Det genomförs när en annan användare har attesterat det under Inkorg.');
+        return;
+      }
+      await api.del(`/transactions/${initial.id}`);
+      bump();
+      onClose();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   const amountLabel: Record<string, string> = {
@@ -67,12 +91,19 @@ export default function TxForm({ initial, instrumentId, onClose }: { initial?: T
       onClose={onClose}
       footer={
         <>
-          {initial && <button type="button" className="btn danger" onClick={del} style={{ marginRight: 'auto' }}>Ta bort</button>}
-          <button type="button" className="btn" onClick={onClose}>Avbryt</button>
-          <button className="btn primary" form="txform" disabled={busy}>{busy ? 'Sparar …' : 'Spara'}</button>
+          {initial && !sent && <button type="button" className="btn danger" onClick={del} disabled={locked && pending} style={{ marginRight: 'auto' }}>{locked ? 'Begär borttag' : 'Ta bort'}</button>}
+          <button type="button" className="btn" onClick={onClose}>{sent ? 'Stäng' : 'Avbryt'}</button>
+          {!sent && <button className="btn primary" form="txform" disabled={busy || (locked && pending)}>{busy ? 'Sparar …' : locked ? 'Skicka för attest' : 'Spara'}</button>}
         </>
       }
     >
+      {locked && !sent && (
+        <div className="alert" style={{ marginBottom: 12 }}>
+          <strong>Attesterad.</strong> Transaktionen är attesterad enligt fyra ögon-principen. En ändring eller ett borttag genomförs först när en annan användare har attesterat det.
+          {pending && ' Det finns redan en ändring som väntar på attest under Inkorg.'}
+        </div>
+      )}
+      {sent && <div className="alert ok" style={{ marginBottom: 12 }}>{sent}</div>}
       <form id="txform" onSubmit={submit} className="form-grid">
         <label className="field full">Instrument
           <select value={d.instrument_id} onChange={set('instrument_id')} required>

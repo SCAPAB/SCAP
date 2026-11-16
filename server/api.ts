@@ -5,7 +5,8 @@ import {
   bumpVersion, cached, entities, getMarket, instruments, parseDate, parseEntities, portfolioData, today,
 } from './data.ts';
 import { allocate, peHolding, listedHolding, periodReturns, snapshot, valueSeries, addDays, sumListed, sumPe, stripPe, portfolioIrrBase, exposureUncalled } from './calc.ts';
-import { validateInstrument, validateTransaction, checkHoldingTimeline, checkCommitmentTimeline, integrityIssues, isDate, num } from './validate.ts';
+import { validateInstrument, validateTransaction, integrityIssues, isDate, num } from './validate.ts';
+import { changeRoutes, assertNotLocked, prepareTransactionUpdate, writeTransactionUpdate, assertTransactionDeletable, ATTESTED_SQL, PENDING_CHANGE_SQL } from './changes.ts';
 import { importCsv, IMPORT_KINDS } from './importer.ts';
 import { toCsv } from './csv.ts';
 import { docs } from './documents.ts';
@@ -23,6 +24,7 @@ api.get('/auth/me', (req, res) => res.json(req.user));
 api.use(docs);
 api.use(portfolioRoutes);
 api.use(morningstar);
+api.use(changeRoutes);
 
 const uid = (req: Request) => req.user?.id ?? null;
 const editor = requireRole('editor');
@@ -113,7 +115,7 @@ api.get('/instruments/:id', (req, res) => {
   const asOf = parseDate(req.query.asOf, today());
   const m = getMarket();
   const txs = all<Transaction & { entity_name: string }>(
-    'SELECT t.*, e.name entity_name FROM transactions t JOIN entities e ON e.id=t.entity_id WHERE instrument_id=? ORDER BY trade_date DESC, t.id DESC', id,
+    `SELECT t.*, e.name entity_name, ${ATTESTED_SQL} attested, ${PENDING_CHANGE_SQL} pending_change_id FROM transactions t JOIN entities e ON e.id=t.entity_id WHERE instrument_id=? ORDER BY trade_date DESC, t.id DESC`, id,
   ).filter((t) => !ents || ents.includes(t.entity_id));
   const byEnt = new Map<number, Transaction[]>();
   for (const t of txs) byEnt.set(t.entity_id, [...(byEnt.get(t.entity_id) ?? []), t]);
@@ -163,7 +165,8 @@ api.get('/transactions', (req, res) => {
   if (req.query.q) { where.push('(i.name LIKE ? OR i.isin LIKE ? OR t.note LIKE ?)'); const q = `%${req.query.q}%`; p.push(q, q, q); }
   const limit = Math.min(Number(req.query.limit) || 500, 5000);
   const rows = all(
-    `SELECT t.*, i.name instrument_name, i.currency, i.type instrument_type, e.name entity_name
+    `SELECT t.*, i.name instrument_name, i.currency, i.type instrument_type, e.name entity_name,
+       ${ATTESTED_SQL} attested, ${PENDING_CHANGE_SQL} pending_change_id
      FROM transactions t JOIN instruments i ON i.id=t.instrument_id JOIN entities e ON e.id=t.entity_id
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY t.trade_date DESC, t.id DESC LIMIT ${limit}`,
     ...p,
@@ -187,18 +190,9 @@ api.put('/transactions/:id', editor, (req, res) => {
   const id = Number(req.params.id);
   const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
   if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
-  // Fälten utanför åtagandet och återinkallningsbart behålls om de inte skickas med (formuläret saknar dem)
-  const v = validateTransaction({ outside_commitment: cur.outside_commitment, recallable: cur.recallable, ...req.body, id });
-  // Flyttas affären till ett annat instrument eller en annan enhet prövas också instrumentet där den fanns (F4, F5)
-  if (cur.entity_id !== v.entity_id || cur.instrument_id !== v.instrument_id) {
-    const msg = cur.type === 'BUY' || cur.type === 'SELL' ? checkHoldingTimeline(cur.entity_id, cur.instrument_id, { remove: id })
-      : cur.type === 'COMMITMENT' || cur.type === 'DISTRIBUTION' ? checkCommitmentTimeline(cur.entity_id, cur.instrument_id, { remove: id }) : null;
-    if (msg) throw new HttpError(400, msg);
-  }
-  run(
-    'UPDATE transactions SET entity_id=?,instrument_id=?,type=?,trade_date=?,settle_date=?,quantity=?,price=?,amount=?,fee=?,fx_rate=?,note=?,outside_commitment=?,recallable=? WHERE id=?',
-    v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, v.outside_commitment, v.recallable, id,
-  );
+  assertNotLocked(id); // fyra ögon: attesterad transaktion ändras via ändringsbegäran (409, F9)
+  const v = prepareTransactionUpdate(cur, req.body ?? {}); // 400 vid ogiltig ändring (F4, F5)
+  writeTransactionUpdate(id, v);
   audit(uid(req), 'update', 'transaction', id, { before: cur, after: v });
   bumpVersion();
   res.json({ ok: true });
@@ -208,16 +202,8 @@ api.delete('/transactions/:id', editor, (req, res) => {
   const id = Number(req.params.id);
   const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
   if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
-  // Ett köp som en senare försäljning bygger på kan inte tas bort (409, F4)
-  if (cur.type === 'BUY' || cur.type === 'SELL') {
-    const msg = checkHoldingTimeline(cur.entity_id, cur.instrument_id, { remove: id });
-    if (msg) throw new HttpError(409, `Transaktionen kan inte tas bort: ${msg}`);
-  }
-  // Ett åtagande eller en återinkallningsbar utdelning som ett senare anrop bygger på kan inte tas bort (409, F5)
-  if (cur.type === 'COMMITMENT' || (cur.type === 'DISTRIBUTION' && (cur.recallable ?? 0) > 0)) {
-    const msg = checkCommitmentTimeline(cur.entity_id, cur.instrument_id, { remove: id });
-    if (msg) throw new HttpError(409, `Transaktionen kan inte tas bort: ${msg}`);
-  }
+  assertNotLocked(id); // fyra ögon: attesterad transaktion tas bort via ändringsbegäran (409, F9)
+  assertTransactionDeletable(cur); // 409 om senare poster bygger på transaktionen (F4, F5)
   run('DELETE FROM transactions WHERE id=?', id);
   audit(uid(req), 'delete', 'transaction', id, cur);
   bumpVersion();

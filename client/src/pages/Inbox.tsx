@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useApp, useFetch } from '../context';
 import { DataTable, ErrorBox, Loading, Seg } from '../components/ui';
+import { fmt } from '../format';
+import { TX_LABELS, type Transaction } from '../../../shared/types';
 
 export interface DocListRow {
   id: number; filename: string; mime: string; status: 'processing' | 'review' | 'done' | 'error' | 'manual'; doc_type: string | null; doc_type_label: string | null;
@@ -106,6 +108,7 @@ export default function Inbox() {
         </div>
       )}
       <ErrorBox error={error} />
+      <ChangeRequests />
       <div className="card mt">
         {!data ? <Loading /> : (
           <DataTable
@@ -139,6 +142,75 @@ export default function Inbox() {
           />
         )}
       </div>
+    </div>
+  );
+}
+
+interface ChangeRequest {
+  id: number; transaction_id: number; action: 'update' | 'delete'; payload: Partial<Transaction> | null; requested_by: number | null; requested_by_name: string | null;
+  requested_at: string; comment: string | null; transaction: (Transaction & { instrument_name: string; currency: string }) | null;
+}
+
+const CHANGE_FIELDS: [keyof Transaction, string][] = [
+  ['type', 'Typ'], ['trade_date', 'Affärsdag'], ['settle_date', 'Likviddag'], ['quantity', 'Antal'], ['price', 'Kurs'], ['amount', 'Belopp'], ['fee', 'Avgift'],
+  ['fx_rate', 'Valutakurs'], ['outside_commitment', 'Varav utanför åtagandet'], ['recallable', 'Varav återinkallningsbart'], ['instrument_id', 'Instrument (id)'], ['note', 'Notering'],
+];
+const show = (v: unknown) => (v == null || v === '' ? '–' : typeof v === 'number' ? fmt.dec(v) : String(v));
+
+/** Ändringar och borttag av attesterade transaktioner som väntar på attest av en annan användare (fyra ögon). */
+function ChangeRequests() {
+  const { me, canEdit, bump } = useApp();
+  const [tick, setTick] = useState(0);
+  const { data } = useFetch<ChangeRequest[]>('/change-requests?status=pending', [tick]);
+  const [err, setErr] = useState<string | null>(null);
+  if (!data || data.length === 0) return null;
+  const act = async (c: ChangeRequest, what: 'approve' | 'reject') => {
+    setErr(null);
+    const comment = what === 'reject' ? prompt('Varför avvisas ändringen? (valfritt)') : null;
+    if (what === 'reject' && comment === null) return;
+    try {
+      await api.post(`/change-requests/${c.id}/${what}`, { comment });
+      setTick((x) => x + 1);
+      bump();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  return (
+    <div className="card mt">
+      <div className="card-head"><h2>Ändringar som väntar på attest</h2></div>
+      <p className="small muted">Attesterade transaktioner ändras eller tas bort först när en annan användare än den som begärde ändringen har attesterat den. Båda namnen loggas.</p>
+      <ErrorBox error={err} />
+      <DataTable
+        rows={data}
+        rowKey={(c) => c.id}
+        columns={[
+          {
+            key: 't', label: 'Transaktion', render: (c) => c.transaction ? (
+              <div className="name-cell"><Link to={`/instrument/${c.transaction.instrument_id}`}>{c.transaction.instrument_name}</Link><span className="sub">#{c.transaction_id} · {TX_LABELS[c.transaction.type]} · {c.transaction.trade_date}</span></div>
+            ) : <span className="muted">#{c.transaction_id} (finns inte längre)</span>,
+          },
+          {
+            key: 'c', label: 'Ändring', render: (c) => c.action === 'delete' ? <span className="badge err">Borttag</span> : (
+              <div className="small">
+                {CHANGE_FIELDS.filter(([k]) => c.transaction && c.payload && String(c.payload[k] ?? '') !== String(c.transaction[k] ?? '')).map(([k, label]) => (
+                  <div key={k}>{label}: {show(c.transaction![k])} → <strong>{show(c.payload![k])}</strong></div>
+                ))}
+              </div>
+            ),
+          },
+          { key: 'r', label: 'Begärd av', render: (c) => <div className="name-cell"><span>{c.requested_by_name ?? '–'}</span><span className="sub">{c.requested_at.slice(0, 16)}</span></div> },
+          { key: 'k', label: 'Kommentar', render: (c) => <span className="muted small">{c.comment ?? ''}</span> },
+          {
+            key: 'a', label: '', render: (c) => canEdit ? (
+              <div className="row">
+                <button className="btn small primary" disabled={c.requested_by === me.id} title={c.requested_by === me.id ? 'Du har begärt ändringen – en annan användare måste attestera' : undefined} onClick={() => act(c, 'approve')}>Attestera</button>
+                <button className="btn small" onClick={() => act(c, 'reject')}>Avvisa</button>
+              </div>
+            ) : null,
+          },
+        ]}
+      />
     </div>
   );
 }

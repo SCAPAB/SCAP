@@ -1,6 +1,6 @@
 {
   "namn": "Fyra ögon – en attesterad transaktion får inte ändras av en ensam användare",
-  "beskrivning": "Placerare 2026-11-15 fel 1. Fyra ögon-principen är påslagen. Administratören granskar ett kapitalanrop i Inkorgen (totalt 105 000 kr varav avgift 5 000), och en annan användare attesterar → transaktion 2 (transaktion 1 är åtagandet). Inbetalt = 105 000. Därefter ändrar administratören ensam beloppet i den attesterade transaktionen till 500 000 under Transaktioner. Ändringen ska stoppas (eller kräva ny attest), annars är kontrollen verkningslös. I dag sparas ändringen direkt och inbetalt blir 505 000.",
+  "beskrivning": "Placerare 2026-11-15 fel 1. Fyra ögon-principen är påslagen. Administratören granskar ett kapitalanrop i Inkorgen (totalt 105 000 kr varav avgift 5 000), och en annan användare attesterar → transaktion 2 (transaktion 1 är åtagandet). Inbetalt = 105 000. Därefter ändrar administratören ensam beloppet i den attesterade transaktionen till 500 000 under Transaktioner. Ändringen ska stoppas (eller kräva ny attest), annars är kontrollen verkningslös. I dag sparas ändringen direkt och inbetalt blir 495 000 + 5 000 = 500 000.",
   "datum": "2026-06-30",
   "steg": [
     { "anrop": "PUT /api/settings", "data": { "dual_control": true } },
@@ -14,10 +14,10 @@
     { "beskrivning": "Attestanten loggar in", "anrop": "POST /api/auth/login", "data": { "email": "attestant@test.invalid", "password": "attest-12345" } },
     { "beskrivning": "Attestanten godkänner", "anrop": "POST /api/proposals/{{post}}/approve", "data": {} },
     { "beskrivning": "Administratören loggar in igen", "anrop": "POST /api/auth/login", "data": { "email": "admin@innehav.local", "password": "innehav" } },
-    { "beskrivning": "Ensam ändring av attesterad transaktion stoppas", "anrop": "PUT /api/transactions/2", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-03-01", "amount": 495000, "fee": 5000 }, "forvantadStatus": 409, "kantFel": "Placerare 2026-11-15 fel 1: attesterad transaktion kan ändras utan ny attest" }
+    { "beskrivning": "Ensam ändring av attesterad transaktion stoppas", "anrop": "PUT /api/transactions/2", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "type": "CALL", "trade_date": "2026-03-01", "amount": 495000, "fee": 5000 }, "forvantadStatus": 409 }
   ],
   "kontroller": [
     { "namn": "Posten är attesterad", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].status", "forvantat": "approved" },
-    { "namn": "Inbetalt är det attesterade beloppet 105 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.paidIn", "forvantat": 105000, "kantFel": "Placerare 2026-11-15 fel 1: attesterad transaktion kan ändras utan ny attest" }
+    { "namn": "Inbetalt är det attesterade beloppet 105 000", "hamta": "GET /api/instruments/{{pe}}?asOf={{datum}}", "falt": "total.paidIn", "forvantat": 105000 }
   ]
 }
