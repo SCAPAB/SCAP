@@ -1,0 +1,17 @@
+{
+  "namn": "Ett köp får inte flyttas till efter en försäljning som bygger på det",
+  "beskrivning": "Förbättring 2026-11-15, F4. Köp 1 000 à 100 (2026-01-10), sälj 800 à 120 (2026-03-10) → innehav 200, realiserat 800 × (120 − 100) = 16 000. Att flytta köpet till 2026-04-10 skulle göra försäljningen 2026-03-10 (800 st) större än innehavet den dagen (0 st) och ska stoppas med 400. Att flytta köpet till 2026-02-10, fortfarande före försäljningen, är tillåtet. Kontrollerna efteråt: innehav 1 000 − 800 = 200 st och realiserat 16 000.",
+  "datum": "2026-06-30",
+  "steg": [
+    { "anrop": "POST /api/instruments", "data": { "type": "EQUITY", "name": "Testbolaget Flytt AB", "currency": "SEK", "country": "SE" }, "spara": "aktie" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2026-01-10", "quantity": 1000, "price": 100, "amount": 100000, "fee": 0 }, "spara": "kop" },
+    { "anrop": "POST /api/transactions", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "SELL", "trade_date": "2026-03-10", "quantity": 800, "price": 120, "amount": 96000, "fee": 0 } },
+    { "beskrivning": "Köpet flyttas till efter försäljningen och stoppas", "anrop": "PUT /api/transactions/{{kop}}", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2026-04-10", "quantity": 1000, "price": 100, "amount": 100000, "fee": 0 }, "forvantadStatus": 400, "felInnehaller": "överstiger" },
+    { "beskrivning": "Köpet flyttas till ett annat datum före försäljningen", "anrop": "PUT /api/transactions/{{kop}}", "data": { "entity_id": 1, "instrument_id": "{{aktie}}", "type": "BUY", "trade_date": "2026-02-10", "quantity": 1000, "price": 100, "amount": 100000, "fee": 0 } }
+  ],
+  "kontroller": [
+    { "namn": "Innehavet är 200 st", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.quantity", "forvantat": 200 },
+    { "namn": "Realiserat resultat 16 000", "hamta": "GET /api/instruments/{{aktie}}?asOf={{datum}}", "falt": "total.realizedBase", "forvantat": 16000 },
+    { "namn": "Köpet ligger på 2026-02-10", "hamta": "GET /api/transactions?instrument={{aktie}}&type=BUY", "falt": "[0].trade_date", "forvantat": "2026-02-10" }
+  ]
+}

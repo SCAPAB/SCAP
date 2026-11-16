@@ -5,7 +5,7 @@ import {
   bumpVersion, cached, entities, getMarket, instruments, parseDate, parseEntities, portfolioData, today,
 } from './data.ts';
 import { allocate, peHolding, listedHolding, periodReturns, snapshot, valueSeries, addDays, sumListed, sumPe, stripPe, portfolioIrrBase } from './calc.ts';
-import { validateInstrument, validateTransaction, isDate, num } from './validate.ts';
+import { validateInstrument, validateTransaction, checkHoldingTimeline, integrityIssues, isDate, num } from './validate.ts';
 import { importCsv, IMPORT_KINDS } from './importer.ts';
 import { toCsv } from './csv.ts';
 import { docs } from './documents.ts';
@@ -184,9 +184,14 @@ api.post('/transactions', editor, (req, res) => {
 
 api.put('/transactions/:id', editor, (req, res) => {
   const id = Number(req.params.id);
-  const cur = get('SELECT * FROM transactions WHERE id=?', id);
+  const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
   if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
   const v = validateTransaction({ ...req.body, id });
+  // Flyttas affären till ett annat instrument eller en annan enhet prövas också innehavet där den fanns (F4)
+  if ((cur.type === 'BUY' || cur.type === 'SELL') && (cur.entity_id !== v.entity_id || cur.instrument_id !== v.instrument_id)) {
+    const msg = checkHoldingTimeline(cur.entity_id, cur.instrument_id, { remove: id });
+    if (msg) throw new HttpError(400, msg);
+  }
   run(
     'UPDATE transactions SET entity_id=?,instrument_id=?,type=?,trade_date=?,settle_date=?,quantity=?,price=?,amount=?,fee=?,fx_rate=?,note=? WHERE id=?',
     v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, id,
@@ -198,8 +203,13 @@ api.put('/transactions/:id', editor, (req, res) => {
 
 api.delete('/transactions/:id', editor, (req, res) => {
   const id = Number(req.params.id);
-  const cur = get('SELECT * FROM transactions WHERE id=?', id);
+  const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
   if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
+  // Ett köp som en senare försäljning bygger på kan inte tas bort (409, F4)
+  if (cur.type === 'BUY' || cur.type === 'SELL') {
+    const msg = checkHoldingTimeline(cur.entity_id, cur.instrument_id, { remove: id });
+    if (msg) throw new HttpError(409, `Transaktionen kan inte tas bort: ${msg}`);
+  }
   run('DELETE FROM transactions WHERE id=?', id);
   audit(uid(req), 'delete', 'transaction', id, cur);
   bumpVersion();
@@ -510,6 +520,11 @@ function sendCsv(res: import('express').Response, filename: string, rows: Record
 // ---------------------------------------------------------------------------
 // Administration
 // ---------------------------------------------------------------------------
+
+/** Datakontroll: befintliga data som bryter mot reglerna för innehav och åtaganden (F4, F5). */
+api.get('/integrity', admin, (_req, res) => {
+  res.json({ issues: integrityIssues() });
+});
 
 api.get('/audit', admin, (req, res) => {
   res.json(all(`SELECT a.*, u.name user_name FROM audit_log a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT ?`, Math.min(Number(req.query.limit) || 200, 2000)));

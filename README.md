@@ -110,7 +110,7 @@ Kända fel som ännu inte är rättade ligger kvar som scenarier märkta `kantFe
 
 - **Rapportvaluta** är SEK. Valutakurs anges som SEK per enhet.
 - **Valutakurs** för en affär och för en värdering är den senast registrerade kursen på eller före dagen. En kurs från ett senare datum används aldrig. Saknas kurs vid registrering måste den anges på affären. Saknas kurs vid värdering används kursen från den senaste egna affären i instrumentet, och valutan flaggas under Inaktuell värdering på Översikten.
-- **Anskaffningsvärde** beräknas enligt genomsnittsmetoden, inklusive courtage. Anskaffningsvärdet i SEK räknas med valutakursen på affärsdagen.
+- **Anskaffningsvärde** beräknas enligt genomsnittsmetoden, inklusive courtage. Anskaffningsvärdet i SEK räknas med valutakursen på affärsdagen. Inom en dag räknas köp före försäljningar.
 - **Valutaeffekt** är anskaffningsvärdet i lokal valuta × dagens valutakurs minus anskaffningsvärdet i SEK.
 - **PE-NAV:** senast rapporterade NAV plus kapitalanropens investeringsdel (avgifter ingår i inbetalt men inte i NAV) och minus utdelningar efter rapportdatum. Saknas rapport används inbetalt minus utdelat. Framräknade värden markeras med *.
 - **Avkastning** är tidsviktad (TWR) och bryts vid varje transaktionsdag. Köp, försäljningar, anrop och utdelningar räknas som externa flöden, och flödena nettas per dag. Ett nettoinflöde räknas som investerat från dagens början, r = (V1 − V0 − F) / (V0 + F), så att till exempel avgiften i ett kapitalanrop mäts mot det nya kapitalet. Ett nettoutflöde räknas som uttaget vid dagens slut, r = (V1 − V0 − F) / V0. Periodavkastning (1 mån, 3 mån, i år, 1 år och 3 år) mäts från periodens exakta startdag, till exempel från 31 december för "I år". Om portföljen inte har haft något värde under perioden visas "–" i stället för 0 %.
@@ -119,6 +119,16 @@ Kända fel som ännu inte är rättade ligger kvar som scenarier märkta `kantFe
 - **IRR** är XIRR på faktiska kassaflöden plus NAV som slutvärde.
 
 Beräkningarna finns i `server/calc.ts` och testas i `server/calc.test.ts` (`npm test`).
+
+## Kontroller och statuskoder
+
+- **Innehavet kontrolleras över hela tidslinjen.** När ett köp eller en försäljning skapas, ändras eller tas bort spelas instrumentets alla köp och försäljningar upp i datumordning (köp före försäljning samma dag). Ändringen stoppas om innehavet någon gång skulle bli negativt. Det gäller Ny transaktion, Transaktioner, Import och Inkorgen. Befintliga data som redan bryter mot regeln visas under Administration → Kontroller → Datakontroll (`GET /api/integrity`).
+
+API:et svarar med statuskoder enligt den här regeln:
+
+- **400:** uppgifterna i anropet är ogiltiga, också när de prövas mot befintliga data. Exempel: en försäljning som överstiger innehavet, ett kapitalanrop som överstiger outnyttjat åtagande och en rättelse av ett köp som gör en senare försäljning omöjlig.
+- **403:** den här användaren får inte göra åtgärden, men någon annan får. Exempel: samma person granskar och attesterar.
+- **409:** åtgärden stoppas av objektets tillstånd eller av poster som är beroende av det, oavsett vad som skickas in. Exempel: borttag av ett instrument som har transaktioner, ett förslag som redan är hanterat, borttag av ett köp som en senare försäljning bygger på och ändring av en attesterad transaktion.
 
 ## Struktur
 

@@ -137,13 +137,23 @@ function emptyListed(instrumentId: number, entityIds: number[]): ListedHolding {
   };
 }
 
+/**
+ * Ordning för transaktioner: datum, inom en dag köp före försäljning, därefter registreringsordning (id).
+ * Samma ordning används i kontrollen av innehavet över tidslinjen (validate.ts), så att kontroll och
+ * beräkning alltid är överens.
+ */
+const DAY_ORDER: Partial<Record<Transaction['type'], number>> = { BUY: 0, SELL: 1 };
+export function sortTx<T extends Pick<Transaction, 'trade_date' | 'type' | 'id'>>(txs: T[]): T[] {
+  return [...txs].sort((a, b) => a.trade_date.localeCompare(b.trade_date) || (DAY_ORDER[a.type] ?? 0) - (DAY_ORDER[b.type] ?? 0) || a.id - b.id);
+}
+
 /** Beräknar en position för EN juridisk enhet i ETT instrument per datum. */
 export function listedHolding(
   instrument: Instrument, entityId: number, txs: Transaction[], market: Market, asOf: string,
 ): ListedHolding {
   const h = emptyListed(instrument.id, [entityId]);
   let lastTradePrice: { date: string; price: number } | null = null;
-  const sorted = txs.filter((t) => t.trade_date <= asOf).sort((a, b) => a.trade_date.localeCompare(b.trade_date) || a.id - b.id);
+  const sorted = sortTx(txs.filter((t) => t.trade_date <= asOf));
   for (const t of sorted) {
     switch (t.type) {
       case 'BUY': {

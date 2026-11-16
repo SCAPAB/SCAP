@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useApp, useFetch } from '../context';
 import { DataTable, ErrorBox, Loading, Modal } from '../components/ui';
@@ -17,7 +18,7 @@ export default function Admin() {
       </div>
       {tab === 'entities' && <Entities />}
       {tab === 'users' && <Users />}
-      {tab === 'controls' && <Controls />}
+      {tab === 'controls' && <><Controls /><Integrity /></>}
       {tab === 'audit' && <Audit />}
     </div>
   );
@@ -123,6 +124,31 @@ function Audit() {
           { key: 'o', label: 'Objekt', render: (a) => `${a.object}${a.object_id ? ' #' + a.object_id : ''}` },
           { key: 'd', label: 'Detaljer', render: (a) => <span className="muted small" title={a.details ?? ''}>{(a.details ?? '').slice(0, 90)}</span> },
         ]} />
+    </div>
+  );
+}
+
+interface IntegrityIssue { kind: 'holding' | 'commitment'; entity_id: number; entity: string; instrument_id: number; instrument: string; date: string | null; message: string }
+
+/** Befintliga data som bryter mot reglerna för innehav och åtaganden. Nästa ändring i instrumentet stoppas tills felet är rättat. */
+function Integrity() {
+  const { data, error } = useFetch<{ issues: IntegrityIssue[] }>('/integrity');
+  if (error) return <ErrorBox error={error} />;
+  if (!data) return <Loading />;
+  const kinds = { holding: 'Innehav', commitment: 'Åtagande' };
+  return (
+    <div className="card mt">
+      <h2>Datakontroll</h2>
+      <p className="small muted">Befintliga transaktioner som bryter mot reglerna: en försäljning som överstiger innehavet eller ett kapitalanrop som överstiger outnyttjat åtagande. Nästa ändring i samma instrument stoppas tills felet är rättat.</p>
+      {data.issues.length === 0 ? <div className="alert ok">Inga fel hittades.</div> : (
+        <DataTable rows={data.issues} rowKey={(r) => `${r.kind}-${r.entity_id}-${r.instrument_id}`}
+          columns={[
+            { key: 'k', label: 'Kontroll', render: (r) => <span className="badge err">{kinds[r.kind]}</span> },
+            { key: 'i', label: 'Instrument', render: (r) => <Link to={`/instrument/${r.instrument_id}`}>{r.instrument}</Link> },
+            { key: 'd', label: 'Datum', render: (r) => r.date ?? '–' },
+            { key: 'm', label: 'Fel', render: (r) => <span className="small">{r.message}</span> },
+          ]} />
+      )}
     </div>
   );
 }

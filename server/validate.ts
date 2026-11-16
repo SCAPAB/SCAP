@@ -1,6 +1,7 @@
 import { HttpError } from './auth.ts';
-import { get } from './db.ts';
+import { all, get } from './db.ts';
 import { getMarket } from './data.ts';
+import { sortTx } from './calc.ts';
 import { ASSET_CLASSES, LISTED_TX_TYPES, PE_TX_TYPES, suggestAssetClass, type AssetClass, type Instrument, type InstrumentType, type TxType } from '../shared/types.ts';
 
 const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
@@ -12,7 +13,71 @@ const num = (v: unknown, field: string, opts: { min?: number; optional?: boolean
   return n;
 };
 const str = (v: unknown, max = 200) => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim().slice(0, max));
+const fmtQ = (n: number, d = 4) => n.toLocaleString('sv-SE', { maximumFractionDigits: d });
 
+// ---------------------------------------------------------------------------
+// Innehavet över hela tidslinjen (F4)
+// ---------------------------------------------------------------------------
+
+/** En köp- eller försäljningspost i tidslinjen. Utan id räknas posten som den senast registrerade. */
+export interface TimelineTx { id?: number; type: TxType | string; trade_date: string; quantity: number }
+/** Ändringen som prövas: ny post, ersättning av en befintlig (även med annat datum eller annan typ) eller borttag. */
+export type TimelineChange = { add: TimelineTx } | { replace: number; with: TimelineTx } | { remove: number };
+
+const NEW_ID = Number.MAX_SAFE_INTEGER;
+
+/** Tillämpar en ändring på en lista med poster. */
+function applyChange<T extends { id?: number }>(rows: T[], change: TimelineChange | undefined, toRow: (t: TimelineTx) => T): T[] {
+  if (!change) return rows;
+  if ('add' in change) return [...rows, toRow(change.add)];
+  if ('replace' in change) return [...rows.filter((r) => r.id !== change.replace), toRow({ ...change.with, id: change.with.id ?? change.replace })];
+  return rows.filter((r) => r.id !== change.remove);
+}
+
+/**
+ * Spelar upp instrumentets alla köp och försäljningar för en juridisk enhet i datumordning (köp före
+ * försäljning samma dag, därefter id), efter att ändringen har tillämpats. Returnerar ett felmeddelande
+ * för den första försäljning som överstiger innehavet, annars null. Läser med SQL så att den fungerar
+ * inne i importens databastransaktion.
+ */
+export function checkHoldingTimeline(entityId: number, instrumentId: number, change?: TimelineChange): string | null {
+  const rows = all<{ id: number; type: string; trade_date: string; quantity: number }>(
+    "SELECT id, type, trade_date, quantity FROM transactions WHERE entity_id=? AND instrument_id=? AND type IN ('BUY','SELL')", entityId, instrumentId,
+  );
+  const txs = applyChange(rows, change, (t) => ({ id: t.id ?? NEW_ID, type: t.type, trade_date: t.trade_date, quantity: t.quantity }))
+    .filter((t) => t.type === 'BUY' || t.type === 'SELL') as { id: number; type: TxType; trade_date: string; quantity: number }[];
+  let q = 0;
+  for (const t of sortTx(txs)) {
+    if (t.type === 'BUY') q += t.quantity;
+    else {
+      if (t.quantity > q + 1e-9) return `Försäljningen ${t.trade_date} (${fmtQ(t.quantity)}) överstiger innehavet (${fmtQ(Math.max(0, q))}) per ${t.trade_date}`;
+      q -= t.quantity;
+    }
+  }
+  return null;
+}
+
+/** Befintliga data som bryter mot reglerna (visas under Administration → Datakontroll). */
+export interface IntegrityIssue { kind: 'holding' | 'commitment'; entity_id: number; entity: string; instrument_id: number; instrument: string; date: string | null; message: string }
+
+export function integrityIssues(): IntegrityIssue[] {
+  const out: IntegrityIssue[] = [];
+  const pairs = all<{ entity_id: number; entity: string; instrument_id: number; instrument: string; type: string }>(
+    `SELECT DISTINCT t.entity_id, e.name entity, t.instrument_id, i.name instrument, i.type FROM transactions t
+     JOIN entities e ON e.id=t.entity_id JOIN instruments i ON i.id=t.instrument_id ORDER BY i.name, e.name`,
+  );
+  for (const p of pairs) {
+    if (p.type === 'PE_FUND') continue;
+    const msg = checkHoldingTimeline(p.entity_id, p.instrument_id);
+    if (msg) out.push({ kind: 'holding', entity_id: p.entity_id, entity: p.entity, instrument_id: p.instrument_id, instrument: p.instrument, date: msg.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? null, message: msg });
+  }
+  return out;
+}
+
+/**
+ * Validerar och normaliserar en transaktion. Kastar 400 vid fel.
+ * `b.id` anger en befintlig transaktion som ersätts (ändring), så att innehavet prövas med den nya versionen.
+ */
 export function validateTransaction(b: Record<string, unknown>) {
   const instrument = get<Instrument>('SELECT * FROM instruments WHERE id = ?', Number(b.instrument_id));
   if (!instrument) throw new HttpError(400, 'Okänt instrument');
@@ -41,12 +106,10 @@ export function validateTransaction(b: Record<string, unknown>) {
     fx = getMarket().fxRate(instrument.currency, b.trade_date as string);
     if (!isFinite(fx)) throw new HttpError(400, `Valutakurs för ${instrument.currency} saknas – ange den manuellt`);
   }
-  if (type === 'SELL') {
-    const held = get<{ q: number }>(
-      "SELECT COALESCE(SUM(CASE type WHEN 'BUY' THEN quantity WHEN 'SELL' THEN -quantity END),0) q FROM transactions WHERE entity_id=? AND instrument_id=? AND trade_date<=? AND id != ?",
-      Number(b.entity_id), instrument.id, b.trade_date, Number(b.id ?? 0),
-    )!.q;
-    if (quantity > held + 1e-9) throw new HttpError(400, `Försäljningen (${quantity}) överstiger innehavet (${held}) per ${b.trade_date}`);
+  if (instrument.type !== 'PE_FUND' && (type === 'BUY' || type === 'SELL' || b.id)) {
+    const me = { type, trade_date: b.trade_date as string, quantity };
+    const msg = checkHoldingTimeline(Number(b.entity_id), instrument.id, b.id ? { replace: Number(b.id), with: me } : { add: me });
+    if (msg) throw new HttpError(400, msg);
   }
   return {
     entity_id: Number(b.entity_id), instrument_id: instrument.id, type, trade_date: b.trade_date as string, settle_date: settle,
