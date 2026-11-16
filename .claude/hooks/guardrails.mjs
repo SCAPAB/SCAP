@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Agentvakt – teknisk spärr för agentflödena (PreToolUse-hook i .claude/settings.json).
+ * Guardrails – teknisk spärr för agentflödena (PreToolUse-hook i .claude/settings.json).
  *
- * Reglerna i docs/agentfloden/REGLER.md är instruktioner. Den här filen gör de viktigaste
+ * Reglerna i docs/agents/RULES.md är instruktioner. Den här filen gör de viktigaste
  * av dem till spärrar som gäller oavsett vad en agent har fått för instruktioner:
  *
  * Gäller alla (huvudsessionen och agenter):
@@ -12,9 +12,10 @@
  *   3. Den riktiga databasen och de uppladdade dokumenten i data/ får inte röras.
  *
  * Gäller agenter (anrop som kommer från en subagent):
- *   4. Beslutsavsnittet i en förslagsfil (*-forslag.md) får inte fyllas i eller ändras.
- *   5. Spärrarna själva (.claude/settings*.json, .claude/hooks/, .github/, scripts/kontrollera-beslut.mjs)
- *      får inte ändras.
+ *   4. Beslutsavsnittet i en förslagsfil (*proposal.md) får inte fyllas i eller ändras.
+ *   5. Spärrarna själva och agenternas instruktioner (.claude/settings*.json, .claude/hooks/, .claude/agents/,
+ *      .claude/commands/, .github/, scripts/check-approval.mjs) får inte ändras. Sådana ändringar gör huvudsessionen
+ *      på en människas uppdrag, via pull request.
  *
  * Spärren läser anropet som JSON på stdin och svarar med permissionDecision "deny" och en
  * förklaring när något stoppas. Vid internt fel släpps anropet igenom och felet skrivs
@@ -26,7 +27,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SKRIVANDE = /(^|[^<>&|])>{1,2}(?!&)|\btee\b|\bsed\s+(-\w*\s+)*-i|\bperl\s+(-\w*\s+)*-i|\brm\b|\bmv\b|\bcp\b|\bpython3?\b|\bnode\s+(-\w+\s+)*-e\b|\bchmod\b|\btruncate\b|\bdd\b|\bsqlite3\b/;
-const SPARRFILER = /(^|[\s"'=/])(\.claude\/settings(\.local)?\.json|\.claude\/hooks\/|\.github\/|scripts\/kontrollera-beslut\.mjs)/;
+const SPARRFILER = /(^|[\s"'=/])(\.claude\/settings(\.local)?\.json|\.claude\/hooks\/|\.github\/|scripts\/check-approval\.mjs|\.claude\/agents\/|\.claude\/commands\/)/;
 const RIKTIG_DATA = /(^|[\s"'=/])data\/(innehav\.db|documents\b)/;
 const BESLUTSRAD = /^(Status|Godkänd av|Datum|Kommentar):/m;
 const IKRYSSAD = /\[[xX]\]\s*Godkänn/;
@@ -96,7 +97,7 @@ function orortBeslut(text) {
  * @param {any} input hookens JSON-indata
  * @param {{ aktuellGren?: () => string, finnsFil?: (p: string) => string | null }} miljo
  */
-export function bedom(input, miljo = {}) {
+export function evaluate(input, miljo = {}) {
   const verktyg = input.tool_name;
   const ti = input.tool_input ?? {};
   const agent = input.agent_type || input.agent_id ? (input.agent_type || 'agent') : null;
@@ -120,8 +121,8 @@ export function bedom(input, miljo = {}) {
         const startar = /server\/index\.ts\b|\bnpm\s+(run\s+)?(dev|start|dev:api)\b/.test(seg);
         if (startar && !/\bINNEHAV_DB=/.test(seg) && !/\bINNEHAV_DB=/.test(cmd)) return `Agenten ${agent} får bara starta servern med en tillfällig databas: INNEHAV_DB=$(mktemp -d)/test.db PORT=31xx node --no-warnings --import tsx server/index.ts`;
       }
-      if (/-forslag\.md/.test(cmd) && SKRIVANDE.test(cmd)) return `Agenten ${agent} får inte ändra förslagsfiler via skalet. Beslutet fylls i av en människa.`;
-      if (SPARRFILER.test(cmd) && SKRIVANDE.test(cmd)) return `Agenten ${agent} får inte ändra spärrarna (.claude/settings, .claude/hooks, .github, scripts/kontrollera-beslut.mjs).`;
+      if (/proposal\.md/.test(cmd) && SKRIVANDE.test(cmd)) return `Agenten ${agent} får inte ändra förslagsfiler via skalet. Beslutet fylls i av en människa.`;
+      if (SPARRFILER.test(cmd) && SKRIVANDE.test(cmd)) return `Agenten ${agent} får inte ändra spärrarna eller agenternas instruktioner (.claude/settings, .claude/hooks, .claude/agents, .claude/commands, .github, scripts/check-approval.mjs).`;
     }
     return null;
   }
@@ -132,8 +133,8 @@ export function bedom(input, miljo = {}) {
     const rel = abs.startsWith(cwd + '/') ? abs.slice(cwd.length + 1) : fil;
     if (/^data\//.test(rel) || /\/data\/(innehav\.db|documents\/)/.test(abs)) return 'Den riktiga datan i data/ får inte ändras av agentflödena.';
     if (!agent) return null;
-    if (SPARRFILER.test(rel) || SPARRFILER.test(abs)) return `Agenten ${agent} får inte ändra spärrarna (.claude/settings, .claude/hooks, .github, scripts/kontrollera-beslut.mjs).`;
-    if (/-forslag\.md$/.test(abs)) {
+    if (SPARRFILER.test(rel) || SPARRFILER.test(abs)) return `Agenten ${agent} får inte ändra spärrarna eller agenternas instruktioner (.claude/settings, .claude/hooks, .claude/agents, .claude/commands, .github, scripts/check-approval.mjs).`;
+    if (/(^|\/|-)proposal\.md$/.test(abs)) {
       const nu = lasFil(abs);
       if (verktyg === 'Write') {
         if (nu !== null && !orortBeslut(nu)) return `Förslagsfilen har redan ett mänskligt beslut och får inte skrivas om av agenten ${agent}.`;
@@ -158,13 +159,13 @@ async function main() {
   for await (const chunk of process.stdin) raw += chunk;
   let skal = null;
   try {
-    skal = bedom(JSON.parse(raw));
+    skal = evaluate(JSON.parse(raw));
   } catch (e) {
-    process.stderr.write(`agentvakt: kunde inte bedöma anropet (${e.message}). Släpps igenom.\n`);
+    process.stderr.write(`guardrails: kunde inte bedöma anropet (${e.message}). Släpps igenom.\n`);
     return;
   }
   if (skal) {
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Agentvakt: ${skal}` } }));
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Guardrails: ${skal}` } }));
   }
 }
 
