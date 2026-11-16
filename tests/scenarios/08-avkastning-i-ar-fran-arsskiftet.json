@@ -12,8 +12,8 @@
   "kontroller": [
     { "namn": "Marknadsvärde 13 200", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.marketValue", "forvantat": 13200 },
     { "namn": "Avkastning sedan start 32 %", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "returns[key=ALL].value", "forvantat": 0.32, "tolerans": 0.0001 },
-    { "namn": "Avkastning i år 10 % (från kursen 2025-12-31)", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "returns[key=YTD].value", "forvantat": 0.10, "tolerans": 0.0001, "kantFel": "Placerare 2026-11-15 fel 2: avkastning i år mäts från veckopunkten 2025-12-29 i stället för 2025-12-31" },
-    { "namn": "Värdeförändring i år 1 200 kr", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.ytdChange", "forvantat": 1200, "kantFel": "Placerare 2026-11-15 fel 2: värdeförändring i år räknas från veckopunkten 2025-12-29" },
-    { "namn": "Avkastning i år 10 % även under Avkastning", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.returns[key=YTD].value", "forvantat": 0.10, "tolerans": 0.0001, "kantFel": "Placerare 2026-11-15 fel 2: avkastning i år mäts från veckopunkten 2025-12-29 i stället för 2025-12-31" }
+    { "namn": "Avkastning i år 10 % (från kursen 2025-12-31)", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "returns[key=YTD].value", "forvantat": 0.10, "tolerans": 0.0001 },
+    { "namn": "Värdeförändring i år 1 200 kr", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.ytdChange", "forvantat": 1200 },
+    { "namn": "Avkastning i år 10 % även under Avkastning", "hamta": "GET /api/portfolio/performance?asOf={{datum}}", "falt": "total.returns[key=YTD].value", "forvantat": 0.10, "tolerans": 0.0001 }
   ]
 }

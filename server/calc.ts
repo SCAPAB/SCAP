@@ -395,7 +395,9 @@ export function seriesDates(from: string, to: string, stepDays: number): string[
  * Är nämnaren ≤ 0 blir r = 0. Endast rutnätsdatum returneras.
  */
 export function valueSeries(data: PortfolioData, from: string, to: string, stepDays = 7): SeriesPoint[] {
-  const grid = seriesDates(from, to, stepDays);
+  // Periodernas exakta startdagar (31 december, 1, 3, 12 och 36 månader bakåt) ingår alltid i serien,
+  // så att periodavkastningen mäts från rätt dag och inte från närmaste veckopunkt före.
+  const grid = [...new Set([...seriesDates(from, to, stepDays), ...periodStarts(to).map((p) => p.from).filter((d) => d > from && d < to)])].sort();
   const gridSet = new Set(grid);
   const txs = [...data.transactions].sort((a, b) => a.trade_date.localeCompare(b.trade_date));
   const breaks = new Set(grid);
@@ -423,27 +425,36 @@ export function valueSeries(data: PortfolioData, from: string, to: string, stepD
   return points;
 }
 
-/** Avkastning för standardperioder ur en indexserie. */
-export function periodReturns(series: SeriesPoint[], asOf: string): PeriodReturn[] {
+/** Standardperiodernas startdagar per asOf. Delas av valueSeries (punkter i serien) och periodReturns. */
+export function periodStarts(asOf: string): { key: string; label: string; from: string }[] {
   const y = asOf.slice(0, 4);
   const back = (months: number) => {
     const d = new Date(asOf + 'T00:00:00Z');
     d.setUTCMonth(d.getUTCMonth() - months);
     return d.toISOString().slice(0, 10);
   };
-  const defs = [
+  return [
     { key: '1M', label: '1 mån', from: back(1) },
     { key: '3M', label: '3 mån', from: back(3) },
     { key: 'YTD', label: 'I år', from: `${Number(y) - 1}-12-31` },
     { key: '1Y', label: '1 år', from: back(12) },
     { key: '3Y', label: '3 år', from: back(36) },
-    { key: 'ALL', label: 'Sedan start', from: series[0]?.date ?? asOf },
   ];
+}
+
+/**
+ * Avkastning för standardperioder ur en indexserie. Mäts från periodens exakta startdag (som finns
+ * i serien, se valueSeries). Ger null om perioden börjar före serien, om perioden har längden noll
+ * eller om portföljen inte har haft något värde under perioden (det finns ingen avkastning att visa).
+ */
+export function periodReturns(series: SeriesPoint[], asOf: string): PeriodReturn[] {
+  const defs = [...periodStarts(asOf), { key: 'ALL', label: 'Sedan start', from: series[0]?.date ?? asOf }];
   const last = series[series.length - 1];
   return defs.map((d) => {
-    if (!last || d.from < series[0].date) return { ...d, value: null };
+    if (!last || d.from < series[0].date || d.from >= last.date) return { ...d, value: null };
     let base = series[0];
     for (const p of series) if (p.date <= d.from) base = p; else break;
+    if (!series.some((p) => p.date >= base.date && p.date <= last.date && p.value > EPS)) return { ...d, value: null };
     return { ...d, value: base.index > 0 ? last.index / base.index - 1 : null };
   });
 }

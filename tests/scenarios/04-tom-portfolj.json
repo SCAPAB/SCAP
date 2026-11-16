@@ -6,7 +6,7 @@
   "kontroller": [
     { "namn": "Marknadsvärde 0", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.marketValue", "forvantat": 0 },
     { "namn": "Inga innehav", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "totals.holdingsCount", "forvantat": 0 },
-    { "namn": "Avkastning sedan start saknas (inte 0 %)", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "returns[key=ALL].value", "forvantat": null, "kantFel": "Granskning fynd 8: tom portfölj visar 'Sedan start 0,0 %'" },
+    { "namn": "Avkastning sedan start saknas (inte 0 %)", "hamta": "GET /api/portfolio/overview?asOf={{datum}}", "falt": "returns[key=ALL].value", "forvantat": null },
     { "namn": "Utan policyportfölj visas ingen policystatus", "hamta": "GET /api/portfolio/allocation?asOf={{datum}}", "falt": "rows[key=PUBLIC_EQUITY].status", "forvantat": "none" }
   ]
 }

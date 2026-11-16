@@ -168,3 +168,41 @@ test('F1: omplacering samma dag (sälj A, köp B) nettas och blåser inte upp n�
   // Nettoflöde 0 → r = (V1 − V0) / V0 = (105 000 − 100 000) / 100 000 = 5 %. Med bara inflödet i nämnaren hade det blivit 5 000 / 200 000 = 2,5 %.
   close(s[s.length - 1].index, 105, 1e-9);
 });
+
+// ---------------------------------------------------------------------------
+// F2 (förbättring 2026-11-15): periodavkastning från exakt periodstart
+// ---------------------------------------------------------------------------
+
+test('F2: en NAV-rapport per 2026-06-30 ingår inte i "3 mån" per 2026-09-30', () => {
+  const pe = ins({ id: 5, type: 'PE_FUND', asset_class: 'REAL_ASSETS' });
+  const m = new Market({ prices: [], fx: [], valuations: [{ entity_id: 1, instrument_id: 5, date: '2026-06-30', nav: 150_000 }] });
+  const txs = [
+    tx({ instrument_id: 5, type: 'COMMITMENT', amount: 500_000, trade_date: '2026-01-05' }),
+    tx({ instrument_id: 5, type: 'CALL', amount: 100_000, trade_date: '2026-01-05' }),
+  ];
+  const s = valueSeries({ instruments: [pe], transactions: txs, market: m }, '2026-01-05', '2026-09-30', 7);
+  assert.ok(s.some((p) => p.date === '2026-06-30'), 'periodens startdag finns i serien');
+  const pr = periodReturns(s, '2026-09-30');
+  // Värdet är 150 000 både 2026-06-30 och 2026-09-30 → 3 mån = 0 %. Uppvärderingen 100 000 → 150 000 ligger i perioden före.
+  close(pr.find((p) => p.key === '3M')!.value, 0, 1e-9);
+  assert.equal(pr.find((p) => p.key === 'YTD')!.value, null, 'portföljen startade under året → "–"');
+});
+
+test('F2: avkastning i år mäts från 31 december även när den inte är en veckopunkt', () => {
+  const m = new Market({
+    prices: [
+      { instrument_id: 1, date: '2025-12-01', price: 100 }, { instrument_id: 1, date: '2025-12-31', price: 120 }, { instrument_id: 1, date: '2026-06-30', price: 132 },
+    ], fx: [], valuations: [],
+  });
+  const txs = [tx({ type: 'BUY', quantity: 100, price: 100, amount: 10_000, trade_date: '2025-12-01' })];
+  const s = valueSeries({ instruments: [ins({})], transactions: txs, market: m }, '2025-12-01', '2026-06-30', 7);
+  const pr = periodReturns(s, '2026-06-30');
+  close(pr.find((p) => p.key === 'YTD')!.value, 0.1, 1e-9);
+  close(pr.find((p) => p.key === 'ALL')!.value, 0.32, 1e-9);
+});
+
+test('F2: tom portfölj ger ingen avkastning (null i stället för 0 %)', () => {
+  const m = new Market({ prices: [], fx: [], valuations: [] });
+  const s = valueSeries({ instruments: [], transactions: [], market: m }, '2026-06-30', '2026-06-30', 7);
+  for (const p of periodReturns(s, '2026-06-30')) assert.equal(p.value, null, p.key);
+});
