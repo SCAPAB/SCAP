@@ -1,5 +1,5 @@
 # Leverans 2026-11-15 – implementering av F1–F12
-Underlag: `docs/agentfloden/forbattring/2026-11-15-2-forslag.md`
+Underlag: `docs/agents/runs/improve/2026-11-15/2-proposal.md`
 Beslut: `DELVIS GODKÄND` av Anton Pedersen 2026-11-16. F1–F12 är ikryssade och har byggts. F13–F21 är inte godkända och har inte byggts.
 
 Gren: `forbattring/2026-11-15`, skapad från `main` vid `baef602`. Varje förslag har en egen commit.
@@ -195,7 +195,7 @@ Därtill finns en commit med den här leveransfilen.
 - Iakttagelsen under F1 (flöden på seriens allra första dag) är inte åtgärdad. Den kan tas upp i en senare omgång om ni vill.
 
 ## Rättelser efter granskning
-Underlag: `docs/agentfloden/forbattring/2026-11-15-4-granskning.md` (utfall ÅTGÄRDA FÖRST). Bara de tre blockerande fynden är rättade, och alla ligger inom de godkända förslagen F1, F9 och F2. De ej blockerande fynden är inte åtgärdade och tas upp som nya förslag. Inga befintliga förväntade värden eller kontroller är ändrade eller borttagna. Varje nytt test föll före rättningen och går igenom efteråt.
+Underlag: `docs/agents/runs/improve/2026-11-15/4-review.md` (utfall ÅTGÄRDA FÖRST). Bara de tre blockerande fynden är rättade, och alla ligger inom de godkända förslagen F1, F9 och F2. De ej blockerande fynden är inte åtgärdade och tas upp som nya förslag. Inga befintliga förväntade värden eller kontroller är ändrade eller borttagna. Varje nytt test föll före rättningen och går igenom efteråt.
 
 ### F1 – ett inflöde efter flera dagars kursrörelse späddes ut (genomfört)
 - **Fel:** Serien bröts bara vid veckopunkter och transaktionsdagar. Ett inflöde räknades därför som investerat från föregående brytpunkt, och kursrörelser under dagarna före inflödet mättes mot V0 + F. I granskningens fall blev avkastningen 0,91 % i stället för 10 %.

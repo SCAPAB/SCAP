@@ -1,5 +1,5 @@
 # Implementeringsförslag 2026-11-15
-Underlag: `docs/agentfloden/forbattring/2026-11-15-1-placerare.md` (placerarens rapport, `main` vid `ed98651`, scenarier lagda i `335e1c8`)
+Underlag: `docs/agents/runs/improve/2026-11-15/1-findings.md` (placerarens rapport, `main` vid `ed98651`, scenarier lagda i `335e1c8`)
 
 ## Beslut (fylls i av människa)
 Status: DELVIS GODKÄND

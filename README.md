@@ -87,12 +87,14 @@ Krav på servern: Python 3.9 eller senare och `pip install morningstar-data`. Co
 
 ## Agentflöden (Claude Code)
 
-Utvecklingen av systemet drivs av **agentflöden**, alltså kedjor av agenter med mänskliga beslut där det behövs. Översikt, gemensamma regler och mall finns i [`docs/agentfloden/`](docs/agentfloden/README.md).
+Utvecklingen av systemet drivs av **agentflöden**, alltså kedjor av agenter med mänskliga beslut där det behövs. Översikt, gemensamma regler och mall finns i [`docs/agents/`](docs/agents/README.md).
 
-- **Förbättring** (`/forbattring [fokus]`): placerare → senior-utvecklare → människa godkänner → implementerare.
-- **Nytt flöde** (`/nytt-agentflode [syfte]`): Claude föreslår steg, agenter och beslutspunkter och skapar filerna när du godkänt upplägget.
+- **improve** (`/improve [fokus]`): investor-qa → tech-lead → människa godkänner → implementer (pull request) → reviewer → människa slår ihop.
+- **Nytt flöde** (`/new-workflow [syfte]`): Claude föreslår steg, agenter och beslutspunkter och skapar filerna när du godkänt upplägget.
 
 Agenterna finns i `.claude/agents/`, arbetar alltid mot en tillfällig databas och rör inte er riktiga data.
+
+Det viktigaste spärras tekniskt och inte bara med instruktioner. Guardrails-hooken (`.claude/hooks/guardrails.mjs`) stoppar push till `main`, sammanslagningar och ändringar i beslut eller riktig data. Beslutskontrollen på GitHub kräver ett mänskligt beslut för varje pull request från ett agentflöde. Se [`docs/agents/README.md`](docs/agents/README.md#så-hålls-flödena-säkra).
 
 ## Testning
 
