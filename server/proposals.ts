@@ -293,18 +293,24 @@ export function evaluate(p: ProposalRow, docId: number): Evaluated {
     else checks.push({ level: 'ok', code: 'qty_price', message: 'Antal × kurs stämmer med likvidbeloppet' });
   }
 
-  // Dubbletter: samma enhet, instrument, typ, datum och belopp
+  // Dubbletter: samma enhet, instrument, typ och datum (±5 dagar). Noterade affärer kräver också samma belopp
+  // eller antal, eftersom flera affärer samma dag är vanliga. Avier från slutna fonder (anrop, utdelning och
+  // åtagande) varnar oavsett belopp, så att en reviderad avi inte bokas en gång till (F12).
   if (ins && ent && date && isDate(date)) {
     if (['CALL', 'DISTRIBUTION', 'BUY', 'SELL', 'DIVIDEND', 'FEE', 'COMMITMENT'].includes(kind)) {
+      const total = (t: Transaction) => t.amount + (t.type === 'CALL' ? t.fee : 0); // kapitalanrop bokas som investering + avgift
+      const same = (t: Transaction) => amount == null || Math.abs(total(t) - amount) <= Math.max(1, amount * 0.005) || (qty != null && qty > 0 && Math.abs(t.quantity - qty) < 1e-9);
+      const notice = kind === 'CALL' || kind === 'DISTRIBUTION' || kind === 'COMMITMENT';
       const near = all<Transaction>(
         'SELECT * FROM transactions WHERE entity_id=? AND instrument_id=? AND type=? AND trade_date BETWEEN ? AND ?',
         ent.id, ins.id, kind, addDays(date, -5), addDays(date, 5),
-      ).filter((t) => {
-        const total = t.amount + (t.type === 'CALL' ? t.fee : 0); // kapitalanrop bokas som investering + avgift
-        return amount == null || Math.abs(total - amount) <= Math.max(1, amount * 0.005) || (qty != null && qty > 0 && Math.abs(t.quantity - qty) < 1e-9);
-      });
-      if (near.length) checks.push({ level: 'warning', code: 'duplicate', message: `Möjlig dubblett: liknande transaktion finns redan ${near[0].trade_date} (#${near[0].id})` });
-      else checks.push({ level: 'ok', code: 'duplicate', message: 'Ingen liknande transaktion finns sedan tidigare' });
+      ).filter((t) => notice || same(t)).sort((a, b) => Number(same(b)) - Number(same(a)));
+      const t = near[0];
+      if (t && same(t)) checks.push({ level: 'warning', code: 'duplicate', message: `Möjlig dubblett: liknande transaktion finns redan ${t.trade_date} (#${t.id})` });
+      else if (t) {
+        const what = { CALL: 'anrop', DISTRIBUTION: 'utdelning', COMMITMENT: 'åtagande' }[kind as 'CALL'];
+        checks.push({ level: 'warning', code: 'duplicate', message: `Möjlig dubblett: ${what} finns redan ${t.trade_date} (#${t.id}) med annat belopp (${fmt(total(t))} mot ${fmt(amount)}). Om detta är en reviderad avi, rätta den befintliga transaktionen i stället.` });
+      } else checks.push({ level: 'ok', code: 'duplicate', message: 'Ingen liknande transaktion finns sedan tidigare' });
     }
     if (kind === 'NAV' && get('SELECT 1 FROM pe_valuations WHERE entity_id=? AND instrument_id=? AND date=?', ent.id, ins.id, date)) {
       checks.push({ level: 'warning', code: 'nav_exists', message: `Det finns redan ett NAV per ${date} – det ersätts vid godkännande` });

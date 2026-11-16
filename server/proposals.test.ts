@@ -177,6 +177,25 @@ test('F11: en manuell post får enheten automatiskt bara när programmet har exa
   assert.ok(P.evaluate(two, docId).blocking.includes('Välj juridisk enhet'));
 });
 
+test('F12: reviderad avi med annat belopp i samma fond varnar för dubblett', () => {
+  // Nordic Buyout Partners IV har ett anrop 2025-03-15 på 100 000 + avgift 10 000 = 110 000 (första testet)
+  const [p] = newDoc([item({ kind: 'CALL', instrument_name: F('Nordic Buyout Partners IV'), investor_label: F('Alfa AB'), date: F('2025-03-18'), currency: F('SEK'), amount: F(105_000), fee: F(10_000) })]);
+  const ev = P.evaluate(p, p.document_id);
+  const dup = ev.checks.find((c) => c.code === 'duplicate');
+  assert.equal(dup?.level, 'warning', JSON.stringify(ev.checks));
+  assert.match(dup!.message, /^Möjlig dubblett: anrop finns redan 2025-03-15 \(#\d+\) med annat belopp \(110[\s\u00a0]000 mot 105[\s\u00a0]000\)\. Om detta är en reviderad avi, rätta den befintliga transaktionen i stället\.$/);
+  assert.equal(ev.needsAck, true);
+  P.reject(p.id, null, 'Test');
+});
+
+test('F12: två köp av samma aktie samma dag med olika belopp ger ingen dubblettvarning', () => {
+  // Global Indexfond: Beta Stiftelse köpte 100 st à 10 (1 000) 2024-01-01
+  const [p] = newDoc([item({ kind: 'BUY', isin: F('SE0000000001'), investor_label: F('Beta Stiftelse'), date: F('2024-01-01'), currency: F('SEK'), quantity: F(40), price: F(11), amount: F(440) })]);
+  const ev = P.evaluate(p, p.document_id);
+  assert.equal(ev.checks.find((c) => c.code === 'duplicate')?.level, 'ok', JSON.stringify(ev.checks));
+  P.reject(p.id, null, 'Test');
+});
+
 test('namnmatchning skiljer på fondnummer', () => {
   assert.equal(P.nameScore('Nordic Buyout Partners V', 'Nordic Buyout Partners IV'), 0);
   assert.ok(P.nameScore('Nordic Buyout Partners IV SCSp', 'Nordic Buyout Partners IV') > 0.9);

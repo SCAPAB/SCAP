@@ -11,7 +11,8 @@
     { "anrop": "PUT /api/proposals/{{post}}", "data": { "entity_id": 1, "instrument_id": "{{pe}}", "fields": { "date": "2026-04-10", "amount": 30000, "fee": 2000, "currency": "SEK" } } }
   ],
   "kontroller": [
-    { "namn": "Varning för möjlig dubblett", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].checks", "innehaller": "Möjlig dubblett", "kantFel": "Placerare 2026-11-15 fel 8: dubblettkontrollen kräver samma belopp" },
-    { "namn": "Varningen måste kvitteras", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].needsAck", "forvantat": true, "kantFel": "Placerare 2026-11-15 fel 8: dubblettkontrollen kräver samma belopp" }
+    { "namn": "Varning för möjlig dubblett", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].checks", "innehaller": "Möjlig dubblett" },
+    { "namn": "Varningen måste kvitteras", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].needsAck", "forvantat": true },
+    { "namn": "Varningen säger att beloppet skiljer sig och hänvisar till rättelse", "hamta": "GET /api/documents/{{dok}}", "falt": "proposals[0].checks[code=duplicate].message", "innehaller": "med annat belopp" }
   ]
 }
