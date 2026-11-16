@@ -51,3 +51,47 @@ Granskad gren: `forbattring/2026-11-15` (till och med `3df7e53`). Oberoende gran
   - **F8:** antal saknade rapporter och försening.
   - **F9:** låsning, attest av egen begäran och borttag via attesterad begäran.
 - **Kodläsning:** F3, F4 och F10–F12.
+
+---
+
+# Runda 2 – granskning av rättelserna (efter `097f1bd`)
+
+## Utfall
+**ÅTGÄRDA FÖRST.** F1 och F9 är rättade och håller i alla prov. Migreringen bevarar data, kolumner och index och rullas tillbaka om något går fel. F2 är bara delvis rättad: per 30 juni, som är ett kvartalsslut, börjar "3 mån" fortfarande fel dag.
+
+## Blockerande fynd
+**B1 (Hög) – F2 är bara halvt rättad. Ett månadsslut ger fel startdag när asOf-månaden har färre dagar än målmånaden.**
+- **Var:** `server/calc.ts`, `periodStarts` → `back()`. Dagnumret begränsas till målmånadens längd, men startdagen flyttas aldrig fram till målmånadens sista dag.
+- **Exempel:**
+  - 2026-06-30: "3 mån" = 03-30 och "1 mån" = 05-30
+  - 2026-04-30: "1 mån" = 03-30
+  - 2026-09-30 och 2026-11-30: "1 mån" = 08-30 respektive 10-30
+  - 2026-02-28: "1 mån" = 01-28
+  - 2024-02-29: "1 mån" = 01-29
+  - 2025-02-28: "1 år" = 2024-02-28
+- **Verifierat:** I en egen instans med kurs 100 per 03-30 och 110 per 03-31 till 06-30 gav "3 mån" per 2026-06-30 10 % i stället för 0 %. README lovar att perioden "vid månadsslut börjar på månadens sista dag".
+- **Förslag:** Om asOf är sista dagen i sin månad används sista dagen i målmånaden. Annars används nuvarande begränsning. Lägg till enhetstest för 06-30 (3M = 03-31), 04-30 (1M = 03-31), 02-28 (1M = 01-31) och 2025-02-28 (1Y = 2024-02-29), och ett scenario per 2026-06-30.
+
+## Ej blockerande fynd
+1. **Låg:** `ALTER TABLE change_requests ADD COLUMN before_value` och ifyllnaden från `audit_log` körs utanför `BEGIN`/`COMMIT`. Lägg båda i samma transaktion.
+2. **Låg:** En användarskapad vy på `transactions` stoppar starten med ett tekniskt fel. Återställningen fungerar, men felmeddelandet bör vara begripligt, och `PRAGMA foreign_key_check` bör köras före `COMMIT`.
+3. **Låg:** `server/migrering.test.ts` bygger den "gamla" databasen ur dagens `schema.sql`. Använd det verkliga schemat från `main` som fixtur.
+
+## Vad jag kontrollerade
+- **Testkörningar:**
+  - `npm test`: 188 av 188 godkända.
+  - `npm run typecheck` och `npx vite build` går igenom.
+  - Inga befintliga förväntade värden eller kontroller är ändrade.
+  - Ändringen av indata i scenario 25 (105 000 varav avgift 5 000) är rimlig.
+  - Scenario 24–26 föll mot `097f1bd`, så de prövar verkligen rättelserna.
+- **F1:**
+  - Granskningens fall ger 10,00 % (tidigare 0,91 %).
+  - Inflöde på seriens första dag, inflöde dagen efter ett annat inflöde (16,83 %), försäljning, inflöde på helgdag, och försäljning och köp samma dag ger alla rätt resultat, både totalt och per tillgångsslag.
+- **F9, migreringen:**
+  - En databas skapad på `main` (med kolumner tillagda via ALTER, `document_id`, `result_ref` och ett borttag) gav identiska rader och värden efter migreringen, liksom `table_info`, index och främmande nycklar.
+  - `integrity_check` gav ok och `foreign_key_check` var tom.
+  - Migreringen är idempotent.
+  - `sqlite_sequence` täcker det borttagna id:t.
+  - `before_value` fylls i ur `audit_log`.
+  - Ett nytt anrop ärver inte attest.
+- **F2:** 12-31, 03-31, 05-31 och 05-15 är korrekta. Felen syns i B1.
