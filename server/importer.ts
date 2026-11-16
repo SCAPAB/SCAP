@@ -95,8 +95,8 @@ export function importCsv(kind: string, csv: string, opts: { dryRun: boolean; us
               entity_id: e.id, instrument_id: ins.id, type, trade_date: r.datum?.trim(), settle_date: r.likviddag?.trim(),
               quantity: r.antal, price: r.kurs, amount: r.belopp, fee: r.avgift, fx_rate: r.valutakurs, note: r.notering,
             });
-            run('INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-              v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, opts.userId);
+            run('INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by,outside_commitment,recallable) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+              v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, opts.userId, v.outside_commitment, v.recallable);
             preview = { rad: line, datum: v.trade_date, enhet: e.name, instrument: ins.name, typ: v.type, antal: v.quantity, kurs: v.price, belopp: v.amount, valuta: ins.currency, valutakurs: v.fx_rate };
             break;
           }

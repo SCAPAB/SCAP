@@ -19,8 +19,11 @@ const fmtQ = (n: number, d = 4) => n.toLocaleString('sv-SE', { maximumFractionDi
 // Innehavet över hela tidslinjen (F4)
 // ---------------------------------------------------------------------------
 
-/** En köp- eller försäljningspost i tidslinjen. Utan id räknas posten som den senast registrerade. */
-export interface TimelineTx { id?: number; type: TxType | string; trade_date: string; quantity: number }
+/** En post i tidslinjen. Utan id räknas posten som den senast registrerade. */
+export interface TimelineTx {
+  id?: number; type: TxType | string; trade_date: string;
+  quantity?: number; amount?: number; fee?: number; outside_commitment?: number | null; recallable?: number | null;
+}
 /** Ändringen som prövas: ny post, ersättning av en befintlig (även med annat datum eller annan typ) eller borttag. */
 export type TimelineChange = { add: TimelineTx } | { replace: number; with: TimelineTx } | { remove: number };
 
@@ -44,7 +47,7 @@ export function checkHoldingTimeline(entityId: number, instrumentId: number, cha
   const rows = all<{ id: number; type: string; trade_date: string; quantity: number }>(
     "SELECT id, type, trade_date, quantity FROM transactions WHERE entity_id=? AND instrument_id=? AND type IN ('BUY','SELL')", entityId, instrumentId,
   );
-  const txs = applyChange(rows, change, (t) => ({ id: t.id ?? NEW_ID, type: t.type, trade_date: t.trade_date, quantity: t.quantity }))
+  const txs = applyChange(rows, change, (t) => ({ id: t.id ?? NEW_ID, type: t.type, trade_date: t.trade_date, quantity: t.quantity ?? 0 }))
     .filter((t) => t.type === 'BUY' || t.type === 'SELL') as { id: number; type: TxType; trade_date: string; quantity: number }[];
   let q = 0;
   for (const t of sortTx(txs)) {
@@ -52,6 +55,43 @@ export function checkHoldingTimeline(entityId: number, instrumentId: number, cha
     else {
       if (t.quantity > q + 1e-9) return `Försäljningen ${t.trade_date} (${fmtQ(t.quantity)}) överstiger innehavet (${fmtQ(Math.max(0, q))}) per ${t.trade_date}`;
       q -= t.quantity;
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Åtagandet över hela tidslinjen (F5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Vid varje kapitalanrop i datumordning ska dragningen hittills, summan av (belopp + avgift − utanför
+ * åtagandet), vara högst åtaganden t.o.m. dagen plus återinkallningsbara utdelningar t.o.m. dagen,
+ * med toleransen 1 valutaenhet. Returnerar ett felmeddelande för det första anrop som överstiger
+ * outnyttjat åtagande efter att ändringen har tillämpats, annars null.
+ */
+export function checkCommitmentTimeline(entityId: number, instrumentId: number, change?: TimelineChange): string | null {
+  const ccy = get<{ currency: string }>('SELECT currency FROM instruments WHERE id=?', instrumentId)?.currency ?? '';
+  type Row = { id: number; type: string; trade_date: string; amount: number; fee: number; outside_commitment: number; recallable: number };
+  const rows = all<Row>(
+    "SELECT id, type, trade_date, amount, fee, outside_commitment, recallable FROM transactions WHERE entity_id=? AND instrument_id=? AND type IN ('COMMITMENT','CALL','DISTRIBUTION')",
+    entityId, instrumentId,
+  );
+  const txs = applyChange<Row>(rows, change, (t) => ({
+    id: t.id ?? NEW_ID, type: t.type, trade_date: t.trade_date, amount: t.amount ?? 0, fee: t.fee ?? 0,
+    outside_commitment: t.outside_commitment ?? 0, recallable: t.recallable ?? 0,
+  })).sort((a, b) => a.trade_date.localeCompare(b.trade_date) || a.id - b.id);
+  let drawn = 0;
+  for (const c of txs) {
+    if (c.type !== 'CALL') continue;
+    const draw = c.amount + c.fee - (c.outside_commitment ?? 0);
+    drawn += draw;
+    const capacity = txs.filter((t) => t.trade_date <= c.trade_date).reduce((a, t) => a + (t.type === 'COMMITMENT' ? t.amount : t.type === 'DISTRIBUTION' ? t.recallable ?? 0 : 0), 0);
+    if (drawn > capacity + 1) {
+      const available = capacity - (drawn - draw);
+      const later = txs.find((t) => t.type === 'COMMITMENT' && t.trade_date > c.trade_date);
+      return `Kapitalanropet (${fmtQ(draw, 2)} ${ccy}) överstiger outnyttjat åtagande (${fmtQ(available, 2)} ${ccy}) per ${c.trade_date}`
+        + (later ? `. Åtagandet är registrerat först ${later.trade_date} – kontrollera datumet på åtagandet.` : '');
     }
   }
   return null;
@@ -67,9 +107,9 @@ export function integrityIssues(): IntegrityIssue[] {
      JOIN entities e ON e.id=t.entity_id JOIN instruments i ON i.id=t.instrument_id ORDER BY i.name, e.name`,
   );
   for (const p of pairs) {
-    if (p.type === 'PE_FUND') continue;
-    const msg = checkHoldingTimeline(p.entity_id, p.instrument_id);
-    if (msg) out.push({ kind: 'holding', entity_id: p.entity_id, entity: p.entity, instrument_id: p.instrument_id, instrument: p.instrument, date: msg.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? null, message: msg });
+    const kind = p.type === 'PE_FUND' ? 'commitment' : 'holding';
+    const msg = kind === 'commitment' ? checkCommitmentTimeline(p.entity_id, p.instrument_id) : checkHoldingTimeline(p.entity_id, p.instrument_id);
+    if (msg) out.push({ kind, entity_id: p.entity_id, entity: p.entity, instrument_id: p.instrument_id, instrument: p.instrument, date: msg.match(/per (\d{4}-\d{2}-\d{2})/)?.[1] ?? null, message: msg });
   }
   return out;
 }
@@ -106,14 +146,22 @@ export function validateTransaction(b: Record<string, unknown>) {
     fx = getMarket().fxRate(instrument.currency, b.trade_date as string);
     if (!isFinite(fx)) throw new HttpError(400, `Valutakurs för ${instrument.currency} saknas – ange den manuellt`);
   }
+  // PE: utanför åtagandet (t.ex. utjämningsränta) för anrop och återinkallningsbart för utdelningar
+  const outside = type === 'CALL' ? num(b.outside_commitment, 'Varav utanför åtagandet', { min: 0, def: 0 })! : 0;
+  const recallable = type === 'DISTRIBUTION' ? num(b.recallable, 'Varav återinkallningsbart', { min: 0, def: 0 })! : 0;
+  const me = { type, trade_date: b.trade_date as string, quantity, amount, fee, outside_commitment: outside, recallable };
+  const change: TimelineChange = b.id ? { replace: Number(b.id), with: me } : { add: me };
   if (instrument.type !== 'PE_FUND' && (type === 'BUY' || type === 'SELL' || b.id)) {
-    const me = { type, trade_date: b.trade_date as string, quantity };
-    const msg = checkHoldingTimeline(Number(b.entity_id), instrument.id, b.id ? { replace: Number(b.id), with: me } : { add: me });
+    const msg = checkHoldingTimeline(Number(b.entity_id), instrument.id, change);
+    if (msg) throw new HttpError(400, msg);
+  }
+  if (instrument.type === 'PE_FUND' && (type === 'CALL' || type === 'COMMITMENT' || type === 'DISTRIBUTION' || b.id)) {
+    const msg = checkCommitmentTimeline(Number(b.entity_id), instrument.id, change);
     if (msg) throw new HttpError(400, msg);
   }
   return {
     entity_id: Number(b.entity_id), instrument_id: instrument.id, type, trade_date: b.trade_date as string, settle_date: settle,
-    quantity, price, amount, fee, fx_rate: fx, note: str(b.note, 500),
+    quantity, price, amount, fee, fx_rate: fx, note: str(b.note, 500), outside_commitment: outside, recallable,
   };
 }
 

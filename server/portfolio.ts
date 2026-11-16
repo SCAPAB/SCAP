@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { all, get, run, audit } from './db.ts';
 import { HttpError, requireRole } from './auth.ts';
 import { cached, parseDate, parseEntities, portfolioData, today } from './data.ts';
-import { TA_DEFAULTS, addDays, peHolding, periodReturns, snapshot, taForecast, totalValue, valueSeries, xirrSafe } from './calc.ts';
+import { TA_DEFAULTS, addDays, exposureUncalled, peHolding, periodReturns, snapshot, taForecast, totalValue, valueSeries, xirrSafe } from './calc.ts';
 import { ASSET_CLASSES, type AssetClass, type Instrument, type Transaction } from '../shared/types.ts';
 
 export const portfolioRoutes = Router();
@@ -38,7 +38,7 @@ portfolioRoutes.get('/portfolio/allocation', (req, res) => {
     const i = byId.get(h.instrumentId)!;
     const r = find(i.asset_class);
     r.value += h.navBase;
-    r.uncalled += h.uncalledBase;
+    r.uncalled += exposureUncalled(h);
     r.subs.set(i.sub_class ?? 'Övrigt', (r.subs.get(i.sub_class ?? 'Övrigt') ?? 0) + h.navBase);
   }
   const total = rows.reduce((a, r) => a + r.value, 0);
@@ -139,7 +139,7 @@ portfolioRoutes.get('/portfolio/liquidity', (req, res) => {
   const funds = s.pe.map((h) => {
     const i = byId.get(h.instrumentId)!;
     const params = TA_DEFAULTS[i.sub_class ?? ''] ?? TA_DEFAULTS[i.strategy ?? ''] ?? TA_DEFAULTS.default;
-    const f = taForecast({ vintage: i.vintage ?? asOfYear, nav: h.navBase, uncalled: h.uncalledBase, asOfYear, years, params });
+    const f = taForecast({ vintage: i.vintage ?? asOfYear, nav: h.navBase, uncalled: exposureUncalled(h), asOfYear, years, params });
     return { id: i.id, name: i.name, assetClass: i.asset_class, subClass: i.sub_class, vintage: i.vintage, currency: i.currency, nav: h.navBase, uncalled: h.uncalledBase, commitment: h.commitmentBase, calledPct: h.calledPct, forecast: f, params };
   });
   const yearsArr = Array.from({ length: years }, (_, k) => asOfYear + k + 1);
@@ -148,7 +148,7 @@ portfolioRoutes.get('/portfolio/liquidity', (req, res) => {
     return { year: y, calls: rows.reduce((a, r) => a + r.calls, 0), distributions: rows.reduce((a, r) => a + r.distributions, 0), nav: rows.reduce((a, r) => a + r.nav, 0), uncalled: rows.reduce((a, r) => a + r.uncalled, 0) };
   });
   const listedLiquid = s.listed.reduce((a, h) => a + (byId.get(h.instrumentId)!.asset_class !== 'ABSOLUTE_RETURN' ? h.mvBase : 0), 0);
-  const uncalled = s.pe.reduce((a, h) => a + h.uncalledBase, 0);
+  const uncalled = s.pe.reduce((a, h) => a + exposureUncalled(h), 0);
   res.json({
     asOf, uncalled, listedLiquid, coverage: uncalled ? listedLiquid / uncalled : null,
     upcoming, funds, totals,

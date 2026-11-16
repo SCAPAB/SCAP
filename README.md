@@ -114,7 +114,7 @@ Kända fel som ännu inte är rättade ligger kvar som scenarier märkta `kantFe
 - **Valutaeffekt** är anskaffningsvärdet i lokal valuta × dagens valutakurs minus anskaffningsvärdet i SEK.
 - **PE-NAV:** senast rapporterade NAV plus kapitalanropens investeringsdel (avgifter ingår i inbetalt men inte i NAV) och minus utdelningar efter rapportdatum. Saknas rapport används inbetalt minus utdelat. Framräknade värden markeras med *.
 - **Avkastning** är tidsviktad (TWR) och bryts vid varje transaktionsdag. Köp, försäljningar, anrop och utdelningar räknas som externa flöden, och flödena nettas per dag. Ett nettoinflöde räknas som investerat från dagens början, r = (V1 − V0 − F) / (V0 + F), så att till exempel avgiften i ett kapitalanrop mäts mot det nya kapitalet. Ett nettoutflöde räknas som uttaget vid dagens slut, r = (V1 − V0 − F) / V0. Periodavkastning (1 mån, 3 mån, i år, 1 år och 3 år) mäts från periodens exakta startdag, till exempel från 31 december för "I år". Om portföljen inte har haft något värde under perioden visas "–" i stället för 0 %.
-- **Outnyttjat åtagande** = åtagande − anropat (exklusive utjämningsränta utanför åtagandet) + återinkallningsbara utdelningar.
+- **Outnyttjat åtagande** = åtagande − anropat (exklusive utjämningsränta utanför åtagandet) + återinkallningsbara utdelningar. Per fond visas ett negativt belopp om äldre data innehåller ett överanrop. I summeringar av exponering och likviditet räknas en sådan fond som 0.
 - **Kassaflödesprognos** enligt Takahashi & Alexander (2002) med schablonparametrar per strategi (tillväxt, löptid, bow, anropstakt).
 - **IRR** är XIRR på faktiska kassaflöden plus NAV som slutvärde.
 
@@ -123,6 +123,7 @@ Beräkningarna finns i `server/calc.ts` och testas i `server/calc.test.ts` (`npm
 ## Kontroller och statuskoder
 
 - **Innehavet kontrolleras över hela tidslinjen.** När ett köp eller en försäljning skapas, ändras eller tas bort spelas instrumentets alla köp och försäljningar upp i datumordning (köp före försäljning samma dag). Ändringen stoppas om innehavet någon gång skulle bli negativt. Det gäller Ny transaktion, Transaktioner, Import och Inkorgen. Befintliga data som redan bryter mot regeln visas under Administration → Kontroller → Datakontroll (`GET /api/integrity`).
+- **Kapitalanrop kontrolleras mot åtagandet.** Vid varje anrop i datumordning ska dragningen hittills, summan av (belopp + avgift − utanför åtagandet), vara högst åtaganden t.o.m. dagen plus återinkallningsbara utdelningar t.o.m. dagen (tolerans 1 valutaenhet). Ett anrop som överstiger outnyttjat åtagande stoppas (400). Ett åtagande eller en återinkallningsbar utdelning som ett senare anrop bygger på kan inte tas bort (409). Utjämningsränta och liknande som ligger utanför åtagandet anges som "varav utanför åtagandet". Om åtagandet har höjts registreras höjningen först. Äldre överanrop visas i Datakontroll.
 
 API:et svarar med statuskoder enligt den här regeln:
 

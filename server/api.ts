@@ -4,8 +4,8 @@ import { HttpError, authenticate, hashPassword, login, logout, requireRole } fro
 import {
   bumpVersion, cached, entities, getMarket, instruments, parseDate, parseEntities, portfolioData, today,
 } from './data.ts';
-import { allocate, peHolding, listedHolding, periodReturns, snapshot, valueSeries, addDays, sumListed, sumPe, stripPe, portfolioIrrBase } from './calc.ts';
-import { validateInstrument, validateTransaction, checkHoldingTimeline, integrityIssues, isDate, num } from './validate.ts';
+import { allocate, peHolding, listedHolding, periodReturns, snapshot, valueSeries, addDays, sumListed, sumPe, stripPe, portfolioIrrBase, exposureUncalled } from './calc.ts';
+import { validateInstrument, validateTransaction, checkHoldingTimeline, checkCommitmentTimeline, integrityIssues, isDate, num } from './validate.ts';
 import { importCsv, IMPORT_KINDS } from './importer.ts';
 import { toCsv } from './csv.ts';
 import { docs } from './documents.ts';
@@ -172,10 +172,11 @@ api.get('/transactions', (req, res) => {
 });
 
 api.post('/transactions', editor, (req, res) => {
-  const v = validateTransaction(req.body ?? {});
+  const { id: _ignore, ...body } = (req.body ?? {}) as Record<string, unknown>;
+  const v = validateTransaction(body);
   const r = run(
-    'INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-    v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, uid(req),
+    'INSERT INTO transactions (entity_id,instrument_id,type,trade_date,settle_date,quantity,price,amount,fee,fx_rate,note,created_by,outside_commitment,recallable) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, uid(req), v.outside_commitment, v.recallable,
   );
   audit(uid(req), 'create', 'transaction', r.lastInsertRowid, v);
   bumpVersion();
@@ -186,15 +187,17 @@ api.put('/transactions/:id', editor, (req, res) => {
   const id = Number(req.params.id);
   const cur = get<Transaction>('SELECT * FROM transactions WHERE id=?', id);
   if (!cur) throw new HttpError(404, 'Transaktionen finns inte');
-  const v = validateTransaction({ ...req.body, id });
-  // Flyttas affären till ett annat instrument eller en annan enhet prövas också innehavet där den fanns (F4)
-  if ((cur.type === 'BUY' || cur.type === 'SELL') && (cur.entity_id !== v.entity_id || cur.instrument_id !== v.instrument_id)) {
-    const msg = checkHoldingTimeline(cur.entity_id, cur.instrument_id, { remove: id });
+  // Fälten utanför åtagandet och återinkallningsbart behålls om de inte skickas med (formuläret saknar dem)
+  const v = validateTransaction({ outside_commitment: cur.outside_commitment, recallable: cur.recallable, ...req.body, id });
+  // Flyttas affären till ett annat instrument eller en annan enhet prövas också instrumentet där den fanns (F4, F5)
+  if (cur.entity_id !== v.entity_id || cur.instrument_id !== v.instrument_id) {
+    const msg = cur.type === 'BUY' || cur.type === 'SELL' ? checkHoldingTimeline(cur.entity_id, cur.instrument_id, { remove: id })
+      : cur.type === 'COMMITMENT' || cur.type === 'DISTRIBUTION' ? checkCommitmentTimeline(cur.entity_id, cur.instrument_id, { remove: id }) : null;
     if (msg) throw new HttpError(400, msg);
   }
   run(
-    'UPDATE transactions SET entity_id=?,instrument_id=?,type=?,trade_date=?,settle_date=?,quantity=?,price=?,amount=?,fee=?,fx_rate=?,note=? WHERE id=?',
-    v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, id,
+    'UPDATE transactions SET entity_id=?,instrument_id=?,type=?,trade_date=?,settle_date=?,quantity=?,price=?,amount=?,fee=?,fx_rate=?,note=?,outside_commitment=?,recallable=? WHERE id=?',
+    v.entity_id, v.instrument_id, v.type, v.trade_date, v.settle_date, v.quantity, v.price, v.amount, v.fee, v.fx_rate, v.note, v.outside_commitment, v.recallable, id,
   );
   audit(uid(req), 'update', 'transaction', id, { before: cur, after: v });
   bumpVersion();
@@ -208,6 +211,11 @@ api.delete('/transactions/:id', editor, (req, res) => {
   // Ett köp som en senare försäljning bygger på kan inte tas bort (409, F4)
   if (cur.type === 'BUY' || cur.type === 'SELL') {
     const msg = checkHoldingTimeline(cur.entity_id, cur.instrument_id, { remove: id });
+    if (msg) throw new HttpError(409, `Transaktionen kan inte tas bort: ${msg}`);
+  }
+  // Ett åtagande eller en återinkallningsbar utdelning som ett senare anrop bygger på kan inte tas bort (409, F5)
+  if (cur.type === 'COMMITMENT' || (cur.type === 'DISTRIBUTION' && (cur.recallable ?? 0) > 0)) {
+    const msg = checkCommitmentTimeline(cur.entity_id, cur.instrument_id, { remove: id });
     if (msg) throw new HttpError(409, `Transaktionen kan inte tas bort: ${msg}`);
   }
   run('DELETE FROM transactions WHERE id=?', id);
@@ -349,8 +357,8 @@ api.get('/portfolio/overview', (req, res) => {
         privateEquity: peNav,
         listed: listedMv,
         unrealized: sum(s.listed, (h) => h.unrealizedBase),
-        uncalledCommitments: sum(s.pe, (h) => h.uncalledBase),
-        totalExposure: s.total + sum(s.pe, (h) => h.uncalledBase),
+        uncalledCommitments: sum(s.pe, exposureUncalled),
+        totalExposure: s.total + sum(s.pe, exposureUncalled),
         ytdChange: last && ytdBase ? last.value - ytdBase.value : 0,
         ytdNetFlows: ytdFlows.reduce((a, t) => a + (t.type === 'BUY' || t.type === 'CALL' ? (t.amount + t.fee) * t.fx_rate : t.type === 'SELL' || t.type === 'DISTRIBUTION' ? -(t.amount - t.fee) * t.fx_rate : 0), 0),
         ytdDividends: ytdFlows.filter((t) => t.type === 'DIVIDEND').reduce((a, t) => a + (t.amount - t.fee) * t.fx_rate, 0),
@@ -402,10 +410,10 @@ api.get('/portfolio/holdings', (req, res) => {
     asOf,
     listed,
     pe,
-    total: { value, share: s.total ? value / s.total : 0, portfolio: s.total, policy: policy ?? null, uncalled: sum(pe, (h) => h.uncalledBase) },
+    total: { value, share: s.total ? value / s.total : 0, portfolio: s.total, policy: policy ?? null, uncalled: sum(pe, exposureUncalled) },
     privateSummary: pe.length ? {
       commitment: sum(pe, (h) => h.commitmentBase), paidIn: peAll, distributed: sum(pe, (h) => h.distributedBase),
-      nav: sum(pe, (h) => h.navBase), uncalled: sum(pe, (h) => h.uncalledBase), pnl: sum(pe, (h) => h.pnlBase),
+      nav: sum(pe, (h) => h.navBase), uncalled: sum(pe, exposureUncalled), pnl: sum(pe, (h) => h.pnlBase),
       dpi: peAll ? sum(pe, (h) => h.distributedBase) / peAll : null,
       tvpi: peAll ? (sum(pe, (h) => h.distributedBase) + sum(pe, (h) => h.navBase)) / peAll : null,
       irr: peIrr(ents, asOf, new Set(pe.map((h) => h.instrumentId))),

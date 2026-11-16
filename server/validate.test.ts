@@ -31,7 +31,13 @@ before(async () => {
     (1, 'EQUITY', 'Aktie Tidslinje', 'SE0000000011', 'SEK'),
     (2, 'EQUITY', 'Aktie Import', 'SE0000000012', 'SEK'),
     (3, 'EQUITY', 'Aktie Integritet', 'SE0000000013', 'SEK'),
-    (4, 'EQUITY', 'Aktie Byte', 'SE0000000014', 'SEK')`);
+    (4, 'EQUITY', 'Aktie Byte', 'SE0000000014', 'SEK'),
+    (11, 'PE_FUND', 'Fond Överanrop', NULL, 'EUR'),
+    (12, 'PE_FUND', 'Fond Utjämning', NULL, 'SEK'),
+    (13, 'PE_FUND', 'Fond Sent Åtagande', NULL, 'SEK'),
+    (14, 'PE_FUND', 'Fond Återinkallning', NULL, 'SEK'),
+    (15, 'PE_FUND', 'Fond Integritet', NULL, 'SEK')`);
+  db.run("INSERT INTO fx_rates (currency, date, rate) VALUES ('EUR', '2026-01-01', 11)");
 });
 
 // ---------------------------------------------------------------------------
@@ -92,4 +98,63 @@ test('F4: byte av instrument kontrolleras för det gamla instrumentet', () => {
   const buy = insTx({ instrument_id: 4, type: 'BUY', trade_date: '2026-01-10', quantity: 50, price: 10, amount: 500 });
   insTx({ instrument_id: 4, type: 'SELL', trade_date: '2026-02-10', quantity: 50, price: 10, amount: 500 });
   assert.match(V.checkHoldingTimeline(1, 4, { remove: buy }) ?? '', /överstiger/);
+});
+
+// ---------------------------------------------------------------------------
+// F5: kapitalanrop som överstiger outnyttjat åtagande stoppas
+// ---------------------------------------------------------------------------
+
+test('F5: anrop över outnyttjat åtagande stoppas med 400 och tydligt meddelande', () => {
+  insTx({ instrument_id: 11, type: 'COMMITMENT', trade_date: '2026-01-01', amount: 300_000, fx_rate: 11 });
+  insTx({ instrument_id: 11, type: 'CALL', trade_date: '2026-02-01', amount: 250_000, fx_rate: 11 });
+  const msg = V.checkCommitmentTimeline(1, 11, { add: { type: 'CALL', trade_date: '2026-04-01', amount: 100_000, fee: 0 } });
+  assert.equal(msg?.replace(/\u00a0/g, ' '), 'Kapitalanropet (100 000 EUR) överstiger outnyttjat åtagande (50 000 EUR) per 2026-04-01');
+  assert.throws(
+    () => V.validateTransaction({ entity_id: 1, instrument_id: 11, type: 'CALL', trade_date: '2026-04-01', amount: 100_000, fee: 0 }),
+    (e: Error & { status?: number }) => e.status === 400 && /åtagande/.test(e.message),
+  );
+  // Inom toleransen 1 valutaenhet
+  assert.equal(V.checkCommitmentTimeline(1, 11, { add: { type: 'CALL', trade_date: '2026-04-01', amount: 50_000.5, fee: 0 } }), null);
+});
+
+test('F5: ett anrop med utjämningsränta utanför åtagandet går igenom när dragningen ryms', () => {
+  insTx({ instrument_id: 12, type: 'COMMITMENT', trade_date: '2026-01-01', amount: 100_000 });
+  insTx({ instrument_id: 12, type: 'CALL', trade_date: '2026-02-01', amount: 90_000 });
+  // 9 000 + avgift 2 000 = 11 000 men 1 000 är utanför åtagandet → dragning 10 000 = outnyttjat 10 000
+  const v = V.validateTransaction({ entity_id: 1, instrument_id: 12, type: 'CALL', trade_date: '2026-03-01', amount: 9_000, fee: 2_000, outside_commitment: 1_000 });
+  assert.equal(v.outside_commitment, 1_000);
+  assert.throws(() => V.validateTransaction({ entity_id: 1, instrument_id: 12, type: 'CALL', trade_date: '2026-03-01', amount: 9_000, fee: 2_000 }), /överstiger outnyttjat åtagande \(10[\s\u00a0]000 SEK\)/);
+});
+
+test('F5: åtagande daterat efter det första anropet nämns i felmeddelandet', () => {
+  insTx({ instrument_id: 13, type: 'COMMITMENT', trade_date: '2026-05-01', amount: 100_000 });
+  const msg = V.checkCommitmentTimeline(1, 13, { add: { type: 'CALL', trade_date: '2026-03-01', amount: 10_000, fee: 0 } });
+  assert.match(msg ?? '', /Åtagandet är registrerat först 2026-05-01/);
+});
+
+test('F5: återinkallningsbar utdelning ger utrymme, och den kan inte tas bort när ett senare anrop bygger på den', () => {
+  insTx({ instrument_id: 14, type: 'COMMITMENT', trade_date: '2026-01-01', amount: 100_000 });
+  insTx({ instrument_id: 14, type: 'CALL', trade_date: '2026-02-01', amount: 100_000 });
+  const dist = insTx({ instrument_id: 14, type: 'DISTRIBUTION', trade_date: '2026-03-01', amount: 30_000, recallable: 20_000 });
+  const v = V.validateTransaction({ entity_id: 1, instrument_id: 14, type: 'CALL', trade_date: '2026-04-01', amount: 20_000 });
+  insTx({ ...v, instrument_id: 14 });
+  assert.match(V.checkCommitmentTimeline(1, 14, { remove: dist }) ?? '', /överstiger outnyttjat åtagande/);
+  assert.match(V.checkCommitmentTimeline(1, 14, { replace: dist, with: { type: 'DISTRIBUTION', trade_date: '2026-03-01', amount: 30_000, recallable: 0 } }) ?? '', /överstiger/);
+  const commitment = db.get<{ id: number }>("SELECT id FROM transactions WHERE instrument_id=14 AND type='COMMITMENT'")!.id;
+  assert.match(V.checkCommitmentTimeline(1, 14, { remove: commitment }) ?? '', /överstiger/);
+});
+
+test('F5: överanrop i äldre data syns som negativt outnyttjat och i integritetslistan', async () => {
+  insTx({ instrument_id: 15, type: 'COMMITMENT', trade_date: '2026-01-01', amount: 100_000 });
+  insTx({ instrument_id: 15, type: 'CALL', trade_date: '2026-02-01', amount: 150_000 });
+  const issue = V.integrityIssues().find((i) => i.instrument_id === 15);
+  assert.ok(issue);
+  assert.equal(issue!.kind, 'commitment');
+  assert.equal(issue!.date, '2026-02-01');
+  const { peHolding, Market } = await import('./calc.ts');
+  const ins = db.get<import('../shared/types.ts').Instrument>('SELECT * FROM instruments WHERE id=15')!;
+  const h = peHolding(ins, 1, db.all('SELECT * FROM transactions WHERE instrument_id=15'), new Market({ prices: [], fx: [], valuations: [] }), '2026-06-30');
+  assert.equal(h.uncalled, -50_000);
+  const { exposureUncalled } = await import('./calc.ts');
+  assert.equal(exposureUncalled(h), 0, 'summeringar räknar negativt outnyttjat som 0');
 });

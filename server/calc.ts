@@ -283,7 +283,8 @@ export function peHolding(instrument: Instrument, entityId: number, txs: Transac
   h.fxDate = fx.fxDate;
   h.fxSource = fx.fxSource;
   h.paidIn = h.called + h.fees;
-  h.uncalled = Math.max(0, h.commitment - drawnOnCommitment + recallable);
+  // Får bli negativt på instrumentnivå så att äldre överanrop syns. Summeringar använder exposureUncalled.
+  h.uncalled = h.commitment - drawnOnCommitment + recallable;
   h.calledPct = h.commitment > EPS ? drawnOnCommitment / h.commitment : null;
   if (val) {
     h.nav = Math.max(0, val.value + rollForward);
@@ -334,6 +335,12 @@ export function portfolioIrrBase(parts: PeWork[], asOf: string): number | null {
   const nav = parts.reduce((a, p) => a + p.navBase, 0);
   return xirr([...flows, { date: asOf, amount: nav }]);
 }
+
+/**
+ * Outnyttjat åtagande i SEK för summeringar av exponering och likviditet. En fond med negativt
+ * outnyttjat (äldre överanrop, se Datakontroll) räknas som 0 så att den inte minskar andra fonders behov.
+ */
+export const exposureUncalled = (h: Pick<PeHolding, 'uncalledBase'>) => Math.max(0, h.uncalledBase);
 
 export function stripPe(h: PeWork): PeHolding {
   const { flowsLocal: _a, flowsBase: _b, ...rest } = h;
