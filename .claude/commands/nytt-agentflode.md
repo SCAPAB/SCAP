@@ -10,11 +10,11 @@ Hjälp användaren att skapa ett nytt agentflöde för Innehav. Önskemål: "$AR
 3. Föreslå ett upplägg:
    - flödets namn (kort, svenska, utan å/ä/ö i fil- och kommandonamn)
    - stegen i ordning, med agent, vad varje agent gör och vilken fil den lämnar
-   - var människan beslutar (alltid före steg som ändrar kod eller data)
+   - var människan beslutar (alltid före steg som ändrar kod eller data, och genom en pull request innan något når `main`)
    - vilka befintliga agenter som återanvänds och vilka nya som behövs
    - ett mermaid-diagram
 4. Vänta på att användaren uttryckligen godkänner upplägget. Skapa inga filer innan dess.
-5. Skapa sedan, enligt `MALL.md`:
+5. Skapa sedan, enligt `MALL.md` (inklusive avsnittet *Om flödet ändrar kod* om flödet bygger något):
    - nya agenter i `.claude/agents/`
    - kommandot `.claude/commands/<flöde>.md`
    - `docs/agentfloden/<flöde>/README.md`

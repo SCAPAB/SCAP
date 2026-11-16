@@ -45,6 +45,12 @@ N. **Människans beslut.** Presentera underlaget och fråga användaren. Fyll i 
 N+1. **Avslut.** Sammanfatta och commit:a flödets filer.
 ```
 
+## Om flödet ändrar kod
+Använd samma slut som flödet Förbättring, så att flödet omfattas av spärrarna:
+- Grenen heter `<flöde>/<datum>` och förslagsfilen `docs/agentfloden/<flöde>/<datum>-<n>-forslag.md` med beslutsavsnitt och `- [ ] Godkänn` per punkt. Då kontrollerar GitHub beslutet automatiskt.
+- Den byggande agenten öppnar en pull request. Därefter granskar `granskare` ändringen, och en människa slår ihop den.
+- Ge varje ny agent ett `maxTurns` i frontmatter som kostnadstak.
+
 ## Bra att tänka på
 - Lägg det mänskliga beslutet **före** varje steg som ändrar kod eller data, eller kommunicerar externt.
 - Låt agenter som bedömer (granskar, testar) vara skilda från agenter som utför (bygger). Det ger oberoende kontroll.

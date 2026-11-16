@@ -3,6 +3,7 @@ name: placerare
 description: Steg 1 i flödet Förbättring. Arbetar i Innehav som en erfaren institutionell placerare (CIO-kansli på en stiftelse eller ett endowment) – lägger in verklighetstrogna innehav och händelser, kontrollerar att resultaten blir rätt och bedömer om systemet räcker för det dagliga arbetet. Skriver en rapport till den senior utvecklaren. Ändrar ingen kod.
 tools: Bash, Read, Grep, Glob, Write
 model: inherit
+maxTurns: 200
 ---
 
 **Läs först `docs/agentfloden/REGLER.md`** – gemensamma regler för alla agenter (testinstans, data, språk, godkännanden, filnamn).

@@ -32,10 +32,16 @@ Varje agent i `.claude/agents/` läser den här filen först. Reglerna gäller i
 - En agent som utför något (ändrar kod eller data) kontrollerar först att beslutet finns och bara gäller det som är ikryssat.
 
 ## Kod
-- Endast agenter vars roll uttryckligen är att ändra kod får göra det, och då alltid på en egen gren (`<flöde>/<datum>`), aldrig direkt på `main`. Pusha bara om du uttryckligen har ombetts.
+- Endast agenter vars roll uttryckligen är att ändra kod får göra det, och då alltid på en egen gren (`<flöde>/<datum>`), aldrig direkt på `main`. Ändringar når `main` bara via en pull request som en människa slår ihop. Ingen agent slår ihop, godkänner eller stänger pull requests.
 - Tester först (`server/*.test.ts`). `npm test`, `npx tsc -p tsconfig.json --noEmit` och `npx vite build` ska vara gröna.
 - Gränssnittet är på svenska. Behåll formspråket i `client/src/styles.css`.
 - AI föreslår och människan godkänner. Allt loggas i `audit_log` och inget får bokas i tysthet.
+
+## Tekniska spärrar
+Reglerna ovan förstärks av spärrar som gäller oavsett instruktioner. Försök inte kringgå dem. Om en spärr stoppar något du behöver göra: stanna och beskriv varför i din leverans.
+- **Agentvakten** (`.claude/hooks/agentvakt.mjs`) körs före varje verktygsanrop i Claude Code. Den stoppar push till `main`, sammanslagning och godkännande av pull requests, ändringar i grenskyddet och i den riktiga datan. För agenter stoppar den också ändringar i beslutsavsnitt och i spärrarna själva, och att servern startas utan tillfällig databas. Spärren testas i `server/agentvakt.test.ts`.
+- **Beslutskontrollen** (`scripts/kontrollera-beslut.mjs`) körs på GitHub för varje pull request från en flödesgren `<flöde>/<datum>`. Den kräver ett mänskligt beslut på `main` och att varje commit med förslags-id (`F3: …`) gäller ett godkänt förslag.
+- **Grenskyddet på GitHub** kräver pull request och gröna kontroller för `main`.
 
 ## Överlämning mellan agenter
 - Varje steg lämnar en fil i flödets mapp: `docs/agentfloden/<flöde>/<ÅÅÅÅ-MM-DD>-<stegnr>-<namn>.md`.

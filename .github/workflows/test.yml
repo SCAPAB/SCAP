@@ -18,9 +18,24 @@ jobs:
         with:
           python-version: '3.11'
       - run: npm ci
-      - name: Enhetstester och scenarier
+      - name: Enhetstester, scenarier och agentspärrar
         run: npm test
       - name: Typkontroll
         run: npm run typecheck
       - name: Bygg gränssnittet
         run: npx vite build
+
+  beslut:
+    # Pull requests från agentflöden (grenar som <flöde>/<datum>) måste ha ett mänskligt
+    # beslut på main och får bara innehålla godkända förslag.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Kontrollera människans beslut
+        run: node scripts/kontrollera-beslut.mjs
